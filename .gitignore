@@ -1,0 +1,10 @@
+/dist/
+/build/
+/sdk/
+*.ipk
+*.apk
+*.tar.gz
+*.tar.xz
+*.tar.zst
+*.pyc
+__pycache__/

@@ -1,0 +1,201 @@
+{
+  "luci-app-easy-discovery": {
+    "description": "管理 Easy Discovery 设备发现、运行环境与专用客户端授权",
+    "read": {
+      "ubus": {
+        "file": [
+          "exec"
+        ],
+        "easy-discovery.devices": [
+          "list"
+        ],
+        "easy-discovery.adb": [
+          "list"
+        ]
+      },
+      "file": {
+        "/usr/libexec/luci-easy-discovery status": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package job *": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery-auth status": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package plan install avahi": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package plan install dbus": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package plan install arp": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package plan upgrade avahi": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package plan upgrade dbus": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package plan upgrade arp": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package plan remove avahi": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package plan remove dbus": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package plan remove arp": [
+          "exec"
+        ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "file": [
+          "exec"
+        ],
+        "easy-discovery.devices": [
+          "scan"
+        ],
+        "easy-discovery.adb": [
+          "scan"
+        ]
+      },
+      "file": {
+        "/usr/libexec/luci-easy-discovery-auth create *": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery-auth permissions *": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery-auth rotate": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery-auth revoke": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery discovery arp 0": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery discovery arp 1": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package apply install avahi": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package apply install dbus": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package apply install arp": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package apply upgrade avahi": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package apply upgrade dbus": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package apply upgrade arp": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package apply remove avahi": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package apply remove dbus": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package apply remove arp": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery service avahi start": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery service avahi stop": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery service avahi restart": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery service avahi enable": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery service avahi disable": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery service dbus start": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery service dbus stop": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery service dbus restart": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery service dbus enable": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery service dbus disable": [
+          "exec"
+        ]
+      }
+    }
+  },
+  "luci-avahi-easyadb": {
+    "description": "旧版 EasyADB 兼容权限，仅允许固定 ADB 扫描命令",
+    "read": {
+      "ubus": {
+        "file": [
+          "exec"
+        ]
+      },
+      "file": {
+        "/usr/libexec/luci-avahi-scan scan": [
+          "exec"
+        ]
+      }
+    }
+  },
+  "easy-discovery-devices-list": {
+    "description": "读取设备发现快照",
+    "read": {
+      "ubus": {
+        "easy-discovery.devices": [
+          "list"
+        ]
+      }
+    }
+  },
+  "easy-discovery-devices-scan": {
+    "description": "按需发起设备发现",
+    "read": {
+      "ubus": {
+        "easy-discovery.devices": [
+          "scan"
+        ]
+      }
+    }
+  },
+  "easy-discovery-adb-list": {
+    "description": "读取 ADB 发现快照",
+    "read": {
+      "ubus": {
+        "easy-discovery.adb": [
+          "list"
+        ]
+      }
+    }
+  },
+  "easy-discovery-adb-scan": {
+    "description": "按需发起 ADB 发现",
+    "read": {
+      "ubus": {
+        "easy-discovery.adb": [
+          "scan"
+        ]
+      }
+    }
+  }
+}

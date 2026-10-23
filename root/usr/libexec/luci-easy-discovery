@@ -1,0 +1,25 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+. /usr/share/easy-discovery/environment.sh
+ed_state_init
+[ "$#" -ge 1 ] || ed_error invalid_argument '缺少操作参数'
+operation=$1; shift
+case "$operation" in
+    status) [ "$#" -eq 0 ] || ed_error invalid_argument '存在多余参数'; ed_status ;;
+    service) ed_service "$@" ;;
+    discovery) ed_set_arp "$@" ;;
+    package)
+        [ "$#" -ge 1 ] || ed_error invalid_argument '缺少软件包子命令'
+        phase=$1; shift
+        case "$phase" in
+            plan) ed_package_plan "$@" ;;
+            apply) ed_package_apply "$@" ;;
+            job)
+                [ "$#" -eq 1 ] && ed_id_valid "$1" || ed_error invalid_argument '软件包任务标识无效'
+                json_init; json_add_string status ok
+                ed_job_json "$1" || ed_error job_not_found '任务记录不存在，可能已被新任务替换或设备已重启'
+                json_dump ;;
+            *) ed_error invalid_argument '不支持的软件包子命令' ;;
+        esac ;;
+    *) ed_error invalid_argument '不支持的操作' ;;
+esac

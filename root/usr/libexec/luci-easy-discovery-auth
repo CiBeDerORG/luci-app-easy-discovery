@@ -1,0 +1,362 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Manage one dedicated RPCD identity. No username, password, path or role name
+# supplied by HTTP is accepted here; the only variable input is a 1..15 mask.
+set -e
+set -f
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+LC_ALL=C
+export PATH LC_ALL
+umask 077
+
+UCI=/sbin/uci
+OPENSSL=/usr/bin/openssl
+UCODE=/usr/bin/ucode
+CONFIG=/etc/config/rpcd
+SESSION_HELPER=/usr/share/easy-discovery/auth/sessions.uc
+LOCK=/tmp/luci-easy-discovery-auth.lock
+SECTION=easyadb
+USERNAME=easyadb
+LEGACY_ROLE=luci-avahi-easyadb
+ROLE_DEVICE_LIST=easy-discovery-devices-list
+ROLE_DEVICE_SCAN=easy-discovery-devices-scan
+ROLE_ADB_LIST=easy-discovery-adb-list
+ROLE_ADB_SCAN=easy-discovery-adb-scan
+work=
+temporary_config=
+locked=0
+gated=0
+secret=
+hash=
+auth_mask=0
+legacy=0
+suspended=0
+destroyed=0
+
+# jshn on older firmware is not compatible with shell nounset.
+[ -r /usr/share/libubox/jshn.sh ] || {
+    printf '%s\n' '{"status":"error","message":"缺少 JSON 运行依赖","error":{"code":"dependency_missing","message":"缺少 libubox jshn"}}'
+    exit 1
+}
+. /usr/share/libubox/jshn.sh
+
+cleanup() {
+    [ -z "$temporary_config" ] || rm -f "$temporary_config"
+    if [ -n "$work" ] && [ -d "$work" ] && [ ! -L "$work" ]; then
+        rm -rf "$work"
+    fi
+    if [ "$locked" = 1 ]; then
+        rm -f "$LOCK/pid"
+        rmdir "$LOCK" 2>/dev/null || true
+    fi
+    secret=
+    hash=
+}
+
+fail() {
+    code=$1
+    message=$2
+    if [ "$gated" = 1 ]; then
+        message="$message；账号操作需要恢复。请刷新授权状态，排除错误后重新生成密钥或撤销授权"
+    fi
+    json_init
+    json_add_string status error
+    json_add_string message "$message"
+    json_add_boolean recovery_required "$gated"
+    json_add_object error
+    json_add_string code "$code"
+    json_add_string message "$message"
+    json_close_object
+    json_dump
+    exit 1
+}
+
+trap cleanup EXIT
+trap 'fail interrupted "账号操作被中断，请刷新授权状态"' HUP INT TERM
+
+[ "$(id -u)" = 0 ] || fail permission_denied '该操作需要路由器管理员权限'
+[ -x "$UCI" ] || fail dependency_missing '未找到 UCI 配置工具'
+[ "$#" -ge 1 ] || fail invalid_argument '缺少账号操作'
+action=$1
+shift
+case "$action" in
+    create|permissions)
+        [ "$#" -eq 1 ] || fail invalid_argument '授权操作需要一个权限位掩码'
+        case "$1" in
+            1|2|3|4|5|6|7|8|9|10|11|12|13|14|15) requested_mask=$1 ;;
+            *) fail invalid_argument '权限位掩码必须为 1 到 15 的整数' ;;
+        esac
+        ;;
+    status|rotate|revoke)
+        [ "$#" -eq 0 ] || fail invalid_argument '账号操作存在多余参数'
+        ;;
+    *) fail invalid_argument '不支持的账号操作' ;;
+esac
+
+safe_config() {
+    [ -f "$CONFIG" ] && [ ! -L "$CONFIG" ] &&
+        [ "$(ls -ldn "$CONFIG" | awk '{ print $3 }')" = 0 ] || return 1
+    case "$(ls -ldn "$CONFIG" | awk '{ print $1 }')" in
+        ?????w*|????????w*) return 1 ;;
+    esac
+    return 0
+}
+
+get() { "$UCI" -q get "rpcd.$SECTION.$1" 2>/dev/null || true; }
+section_type() { "$UCI" -q get "rpcd.$SECTION" 2>/dev/null || true; }
+username_count() {
+    # Parse names only; do not print password hashes or untrusted config values.
+    "$UCI" -q show rpcd 2>/dev/null |
+        awk -F= '$1 ~ /\.username$/ && $2 == "\047easyadb\047" { n++ } END { print n + 0 }'
+}
+
+managed() {
+    auth_mask=0
+    legacy=0
+    suspended=0
+    [ "$(section_type)" = login ] &&
+        [ "$(get username)" = "$USERNAME" ] &&
+        [ "$(username_count)" = 1 ] &&
+        [ -z "$(get write)" ] || return 1
+
+    # Only the old scanner fields and our own markers establish ownership.
+    # Do not normalize or overwrite another component's unknown account fields.
+    "$UCI" -q show "rpcd.$SECTION" 2>/dev/null |
+        awk -F= '
+            $1 == "rpcd.easyadb" && $2 == "login" { head++; next }
+            $1 == "rpcd.easyadb.username" || $1 == "rpcd.easyadb.password" ||
+            $1 == "rpcd.easyadb.read" || $1 == "rpcd.easyadb.write" ||
+            $1 == "rpcd.easyadb.easy_discovery_managed" ||
+            $1 == "rpcd.easyadb.easy_discovery_suspended" { next }
+            { bad = 1 }
+            END { exit(bad || head != 1) }
+        ' || return 1
+    case "$(get easy_discovery_managed)" in ''|1) ;; *) return 1 ;; esac
+    case "$(get easy_discovery_suspended)" in ''|0|1) ;; *) return 1 ;; esac
+
+    current_password=$(get password)
+    if [ "$current_password" = '!' ]; then
+        [ "$(get easy_discovery_managed)" = 1 ] &&
+            [ "$(get easy_discovery_suspended)" = 1 ] || return 1
+        suspended=1
+    else
+        # Old releases used openssl passwd -6; accept that exact hash family.
+        case "$current_password" in *[!A-Za-z0-9./\$=]*) return 1 ;; esac
+        printf '%s\n' "$current_password" |
+            grep -Eq '^\$6\$(rounds=[0-9]+\$)?[./A-Za-z0-9]{1,16}\$[./A-Za-z0-9]{86}$' || return 1
+        [ "$(get easy_discovery_suspended)" != 1 ] || return 1
+    fi
+
+    roles=$(get read)
+    [ -n "$roles" ] || return 1
+    for role in $roles; do
+        case "$role" in
+            "$LEGACY_ROLE") legacy=1 ;;
+            "$ROLE_DEVICE_LIST") auth_mask=$((auth_mask | 1)) ;;
+            "$ROLE_DEVICE_SCAN") auth_mask=$((auth_mask | 2)) ;;
+            "$ROLE_ADB_LIST") auth_mask=$((auth_mask | 4)) ;;
+            "$ROLE_ADB_SCAN") auth_mask=$((auth_mask | 8)) ;;
+            *) return 1 ;;
+        esac
+    done
+    return 0
+}
+
+state_json() {
+    if managed; then
+        account_state=managed
+    elif [ -n "$(section_type)" ] || [ "$(username_count)" != 0 ]; then
+        account_state=conflict
+        auth_mask=0
+        legacy=0
+        suspended=0
+    else
+        account_state=absent
+        auth_mask=0
+        legacy=0
+        suspended=0
+    fi
+    json_init
+    json_add_string status ok
+    json_add_string state "$account_state"
+    json_add_string username "$USERNAME"
+    json_add_boolean suspended "$suspended"
+    json_add_boolean recovery_required "$suspended"
+    json_add_boolean legacy_adb_scan "$legacy"
+    if [ "$auth_mask" = 0 ] && [ "$legacy" = 1 ]; then
+        json_add_boolean legacy_only 1
+    else
+        json_add_boolean legacy_only 0
+    fi
+    json_add_object permissions
+    json_add_boolean deviceList "$(( (auth_mask & 1) != 0 ))"
+    json_add_boolean deviceScan "$(( (auth_mask & 2) != 0 ))"
+    json_add_boolean adbList "$(( (auth_mask & 4) != 0 ))"
+    json_add_boolean adbScan "$(( (auth_mask & 8) != 0 ))"
+    json_close_object
+}
+
+safe_config || fail unsafe_path 'RPCD 配置不存在、非 root 所有或路径不安全'
+"$UCI" -q show rpcd >/dev/null 2>&1 || fail invalid_configuration 'RPCD 配置无法读取，请先修复配置'
+if [ "$action" = status ]; then
+    state_json
+    [ "$suspended" != 1 ] || json_add_string message '账号处于暂停状态，请重新生成密钥或撤销授权以恢复'
+    json_dump
+    exit 0
+fi
+
+# Directory locking is atomic. A stale lock is not removed automatically:
+# a still-running administrator transaction must never lose its ownership.
+[ ! -L "$LOCK" ] || fail unsafe_path '账号锁路径不安全'
+mkdir -m 0700 "$LOCK" 2>/dev/null || fail busy '账号操作锁已占用；若此前操作异常中断，请参阅授权恢复说明'
+locked=1
+printf '%s\n' "$$" > "$LOCK/pid" || fail storage_failed '写入账号操作锁失败'
+
+work=$(mktemp -d /tmp/.easy-discovery-auth.XXXXXX) || fail storage_failed '创建私有事务目录失败'
+chmod 0700 "$work" || fail storage_failed '设置事务目录权限失败'
+mkdir -m 0700 "$work/final" "$work/final-delta" "$work/gate" "$work/gate-delta" ||
+    fail storage_failed '创建事务暂存目录失败'
+cp "$CONFIG" "$work/original" || fail storage_failed '读取 RPCD 配置快照失败'
+# A unique package alias avoids importing /tmp/.uci/rpcd deltas into the private
+# transaction; -t changes the save directory without -P's NOCOMMIT flag.
+stage_package="ed_auth_${work##*.}"
+case "$stage_package" in *[!A-Za-z0-9_]*) fail storage_failed '事务包名格式异常' ;; esac
+
+case "$action" in
+    create)
+        [ -z "$(section_type)" ] && [ "$(username_count)" = 0 ] ||
+            fail configuration_conflict '已存在 easyadb 配置或同名账号，拒绝覆盖'
+        ;;
+    permissions|rotate|revoke)
+        managed || fail configuration_conflict '账号配置不属于本组件的受限账号，拒绝修改'
+        [ "$suspended" != 1 ] || gated=1
+        if [ "$suspended" = 1 ] && [ "$action" = permissions ]; then
+            fail recovery_required '账号已暂停，请先重新生成密钥或撤销授权'
+        fi
+        ;;
+esac
+cmp -s "$CONFIG" "$work/original" || fail concurrent_change '校验期间 RPCD 配置发生变化，请重试'
+
+# Do not commit, discard or incorporate another administrator's staged changes.
+pending=$("$UCI" -q changes rpcd 2>/dev/null) || fail invalid_configuration '无法读取 RPCD 待提交修改'
+[ -z "$pending" ] || fail pending_changes 'RPCD 存在其他待提交修改，请先单独提交或撤销'
+[ -x "$UCODE" ] && [ -r "$SESSION_HELPER" ] ||
+    fail dependency_missing '缺少会话管理运行依赖，请修复 ucode 与 ubus 模块'
+
+# Confirm that multi-response session enumeration works before touching config.
+"$UCODE" "$SESSION_HELPER" inspect >/dev/null 2>&1 ||
+    fail session_unavailable '无法完整读取专用账号会话，账号配置未修改'
+
+if [ "$action" = create ] || [ "$action" = rotate ]; then
+    [ -x "$OPENSSL" ] || fail dependency_missing '缺少 openssl-util'
+    secret=$("$OPENSSL" rand -hex 32 2>/dev/null) || fail random_failed '生成随机密钥失败'
+    [ "${#secret}" -eq 64 ] || fail random_failed '随机密钥长度异常'
+    case "$secret" in *[!0-9a-f]*) fail random_failed '随机密钥格式异常' ;; esac
+    # The plaintext travels on stdin, never as a process argument or a file.
+    hash=$(printf '%s\n' "$secret" | "$OPENSSL" passwd -6 -stdin 2>/dev/null) ||
+        fail hash_failed '密钥哈希生成失败'
+    printf '%s\n' "$hash" |
+        grep -Eq '^\$6\$[./A-Za-z0-9]{1,16}\$[./A-Za-z0-9]{86}$' ||
+        fail hash_failed '密钥哈希格式异常'
+fi
+
+cp "$work/original" "$work/final/$stage_package" || fail storage_failed '准备最终配置副本失败'
+cp "$work/original" "$work/gate/$stage_package" || fail storage_failed '准备登录保护副本失败'
+
+emit_roles() {
+    mask=$1
+    [ "$((mask & 1))" = 0 ] || printf "add_list %s.%s.read='%s'\n" "$stage_package" "$SECTION" "$ROLE_DEVICE_LIST"
+    [ "$((mask & 2))" = 0 ] || printf "add_list %s.%s.read='%s'\n" "$stage_package" "$SECTION" "$ROLE_DEVICE_SCAN"
+    [ "$((mask & 4))" = 0 ] || printf "add_list %s.%s.read='%s'\n" "$stage_package" "$SECTION" "$ROLE_ADB_LIST"
+    if [ "$((mask & 8))" != 0 ]; then
+        printf "add_list %s.%s.read='%s'\n" "$stage_package" "$SECTION" "$ROLE_ADB_SCAN"
+        printf "add_list %s.%s.read='%s'\n" "$stage_package" "$SECTION" "$LEGACY_ROLE"
+    fi
+    return 0
+}
+
+# Prepare both replacements privately before closing the login gate. UCI input
+# contains only fixed field names, fixed role literals and a validated hash.
+{
+    if [ "$action" = revoke ]; then
+        printf 'delete %s.%s\n' "$stage_package" "$SECTION"
+    else
+        if [ "$action" = create ]; then
+            printf 'set %s.%s=login\n' "$stage_package" "$SECTION"
+            printf "set %s.%s.username='%s'\n" "$stage_package" "$SECTION" "$USERNAME"
+        fi
+        if [ "$action" = create ] || [ "$action" = rotate ]; then
+            printf "set %s.%s.password='%s'\n" "$stage_package" "$SECTION" "$hash"
+        fi
+        if [ "$action" = permissions ]; then
+            printf 'delete %s.%s.read\n' "$stage_package" "$SECTION"
+        fi
+        if [ "$action" = create ] || [ "$action" = permissions ]; then
+            emit_roles "$requested_mask"
+        fi
+        printf "set %s.%s.easy_discovery_managed='1'\n" "$stage_package" "$SECTION"
+        printf "set %s.%s.easy_discovery_suspended='0'\n" "$stage_package" "$SECTION"
+    fi
+    printf 'commit %s\n' "$stage_package"
+} | "$UCI" -q -c "$work/final" -t "$work/final-delta" batch >/dev/null 2>&1 ||
+    fail staging_failed '准备账号配置失败，原配置未修改'
+
+{
+    if [ "$action" = create ]; then
+        printf 'set %s.%s=login\n' "$stage_package" "$SECTION"
+        printf "set %s.%s.username='%s'\n" "$stage_package" "$SECTION" "$USERNAME"
+        emit_roles "$requested_mask"
+    fi
+    printf "set %s.%s.password='!'\n" "$stage_package" "$SECTION"
+    printf "set %s.%s.easy_discovery_managed='1'\n" "$stage_package" "$SECTION"
+    printf "set %s.%s.easy_discovery_suspended='1'\n" "$stage_package" "$SECTION"
+    printf 'commit %s\n' "$stage_package"
+} | "$UCI" -q -c "$work/gate" -t "$work/gate-delta" batch >/dev/null 2>&1 ||
+    fail staging_failed '准备登录保护配置失败，原配置未修改'
+
+replace_config() {
+    staged=$1
+    expected=$2
+    safe_config || fail unsafe_path 'RPCD 配置路径在操作期间发生变化'
+    pending=$("$UCI" -q changes rpcd 2>/dev/null) || fail invalid_configuration '无法读取 RPCD 待提交修改'
+    [ -z "$pending" ] || fail concurrent_change '操作期间出现其他 RPCD 待提交修改'
+    cmp -s "$CONFIG" "$expected" || fail concurrent_change 'RPCD 配置已被其他操作更新，拒绝覆盖'
+    # The temporary is in the same filesystem, so rename is the commit point.
+    temporary_config=$(mktemp /etc/config/.rpcd.easy-discovery.XXXXXX) ||
+        fail storage_failed '无法创建 RPCD 原子写入文件'
+    cp "$staged" "$temporary_config" || fail storage_failed '写入 RPCD 新配置失败'
+    chmod 0600 "$temporary_config" || fail storage_failed '设置 RPCD 配置权限失败'
+    cmp -s "$CONFIG" "$expected" || fail concurrent_change 'RPCD 配置已被其他操作更新，拒绝覆盖'
+    mv -f "$temporary_config" "$CONFIG" || fail storage_failed '提交 RPCD 配置失败'
+    temporary_config=
+}
+
+# rpcd reads the UCI login entry on every session.login. The impossible password
+# closes new logins before enumeration. Do not reload/restart rpcd: that would
+# affect admin sessions or preserve an already-authorized dedicated session.
+replace_config "$work/gate/$stage_package" "$work/original"
+gated=1
+session_result=$("$UCODE" "$SESSION_HELPER" clear 2>/dev/null) ||
+    fail session_cleanup_failed '专用账号旧会话未能全部清理，未开放新的登录'
+json_load "$session_result" || fail session_cleanup_failed '会话清理返回了无效结果'
+json_get_var session_status status || fail session_cleanup_failed '会话清理缺少状态字段'
+json_get_var destroyed destroyed_sessions || fail session_cleanup_failed '会话清理缺少计数字段'
+[ "$session_status" = ok ] || fail session_cleanup_failed '会话清理没有成功完成'
+case "$destroyed" in ''|*[!0-9]*) fail session_cleanup_failed '会话清理计数无效' ;; esac
+
+# This final write happens only after no easyadb sessions remain. If anything
+# above/below fails, keep the closed gate instead of restoring the old password.
+replace_config "$work/final/$stage_package" "$work/gate/$stage_package"
+gated=0
+state_json
+json_add_boolean sessions_invalidated 1
+json_add_int destroyed_sessions "$destroyed"
+case "$action" in
+    create|rotate)
+        json_add_string password "$secret"
+        json_add_string message '授权已生效；请立即保存密钥，关闭后无法再次查看'
+        ;;
+    permissions) json_add_string message '访问权限已更新；专用账号旧会话已失效，请客户端重新登录' ;;
+    revoke) json_add_string message '专用账号授权已撤销，旧会话已失效' ;;
+esac
+json_dump

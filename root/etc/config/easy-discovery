@@ -1,0 +1,3 @@
+config discovery 'settings'
+	list network 'lan'
+	option arp_scan '0'

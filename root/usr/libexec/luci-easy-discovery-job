@@ -1,0 +1,6 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Internal detached worker. Not exposed through any RPCD file ACL.
+. /usr/share/easy-discovery/environment.sh
+ed_state_init
+ed_worker "$@"

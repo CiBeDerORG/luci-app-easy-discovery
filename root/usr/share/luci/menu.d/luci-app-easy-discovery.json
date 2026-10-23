@@ -1,0 +1,13 @@
+{
+  "admin/services/easy-discovery": {
+    "title": "Easy Discovery",
+    "order": 60,
+    "action": {
+      "type": "view",
+      "path": "easy-discovery/overview"
+    },
+    "depends": {
+      "acl": ["luci-app-easy-discovery"]
+    }
+  }
+}

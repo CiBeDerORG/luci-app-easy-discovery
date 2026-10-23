@@ -1,0 +1,12 @@
+Easy Discovery
+Copyright 2026 CiBeDerORG
+
+本项目继承 CiBeDerORG/EasyADB 中 luci-avahi-web 的无线 ADB 发现、
+固定命令管理和专用 RPCD 账号设计，并在独立项目中重构扩展。
+
+原始源码：
+https://github.com/CiBeDerORG/EasyADB/tree/dad5f4063fc737e9740273b1e8cf27185505d86c/luci-avahi-web
+原始软件包声明：Apache-2.0。
+
+OpenWrt、LuCI、Avahi、D-Bus、ucode、arp-scan 等由各自项目及许可证管理。
+本仓库仅提供运行依赖声明，不包含上述程序的二进制。
