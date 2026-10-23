@@ -51,6 +51,8 @@ jobs:
           npm ci --prefix tests/frontend --ignore-scripts --no-audit --no-fund
       - name: 检查源码与权限契约
         run: python3 tests/check-source.py
+      - name: 验证发布附件与主分支保护
+        run: python3 tests/release-publication.py
       - name: 验证 Avahi 命令与超时兼容
         run: python3 tests/avahi-cli.py
       - name: 执行发现运行测试
@@ -82,3 +84,26 @@ jobs:
     with:
       sdk_url: ${{ needs.tests.outputs.sdk_url }}
       sdk_sha256: ${{ needs.tests.outputs.sdk_sha256 }}
+
+  release:
+    name: 自动发布 GitHub Release
+    needs: [tests, package]
+    if: github.ref_type == 'branch' && (github.event_name == 'push' || inputs.build_package)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: 获取已测试的发布脚本
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: 下载本次已验签安装包
+        uses: actions/download-artifact@v4
+        with:
+          name: luci-app-easy-discovery-${{ github.sha }}
+          path: dist
+      - name: 校验附件并发布 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish-release.py dist
