@@ -37,7 +37,7 @@ Actions 中 SDK/feeds 下载、依赖编译或源站错误仍可能导致构建�
 sh /绝对路径/luci-app-easy-discovery/scripts/build-sdk.sh /绝对路径/luci-app-easy-discovery
 ```
 
-脚本会在 `package/luci-app-easy-discovery` 建立指向源码的链接，关闭 SDK 的全量包默认选择，设置应用为模块，执行 `make defconfig` 和包级编译；遇到同名且指向其他源码的目录会拒绝覆盖。最终安装包在 SDK 的 `bin` 目录下，脚本会输出具体路径。
+脚本会在 `package/luci-app-easy-discovery` 建立指向源码的链接，保留 SDK 的全局配置并设置应用为模块，执行 `make defconfig` 后确认应用确实被选中，再进行包级编译；遇到同名且指向其他源码的目录会拒绝覆盖。最终安装包在 SDK 的 `bin` 目录下，脚本会输出具体路径。
 
 当前应用只安装脚本和页面资源。脚本会复用 SDK 的元数据解析器，确认本应用没有编译步骤、额外构建依赖，以及所有直接依赖和虚拟提供者均没有 ABI 后缀；确认后，先调用 SDK 原生目标准备 APK 签名密钥，再仅打包本应用。依赖声明、配置文件清单、维护脚本与 SDK 原生包检查仍保留。出现 ABI 依赖、未知语法、元数据缺失或新的编译步骤时，会回退完整依赖构建。可通过 `EASY_DISCOVERY_FULL_BUILD=1 sh /源码/scripts/build-sdk.sh /源码` 强制完整路径。
 
