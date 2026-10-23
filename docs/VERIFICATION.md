@@ -13,6 +13,7 @@
 | 授权与环境事务 | 14 项隔离测试通过，执行真实 BusyBox ash、UCI、jshn、OpenSSL 与 ucode；权限用例遍历 1–15 全部掩码 |
 | 源码与 ACL 契约 | 检查 Shell、JavaScript、JSON、Python 语法，外部权限边界及菜单/资源路径 |
 | SDK 解析 | 实际读取官方元数据并生成 SDK URL、SHA256、版本及 feeds 来源记录 |
+| SDK 构建资格 | 32 个用例通过，使用官方 SDK 的真实元数据解析器检查直接依赖 ABI、虚拟提供者、构建依赖与空编译钩子 |
 
 测试暴露并修复三处生产问题：ucode 属性删除语法错误；含 NUL 的控制字符正则导致运行错误/截断；授权屏障返回空结果时前端继续保留旧设备快照。修复后相关回归用例均通过。
 
@@ -35,6 +36,8 @@ python3 tests/backend/run.py --runtime /tmp/easy-discovery-backend-runtime --uco
 ```
 
 测试运行时固定官方源码：ucode `6cfc97fbfe1f3a5226245e62fdf8e3b150d70859`、libubox `da2d205a5cf3e877c45a2eec488218cbaf452e7d`、UCI `74f6277aabffc943d026f406df57c22595134c42`。Node 测试使用锁定依赖的 `jsdom@26.1.0`。
+
+构建资格回归测试另外需要真实 SDK 的元数据解析器：`python3 tests/package-only-abi.py /SDK绝对路径/scripts`。本地用官方 SDK 源码 `e695009c15` 的解析器完成验证；CI 在下载后的实际 SDK 上重跑。应用打包后还会校验签名，并保存配套公钥、包元数据和文件校验清单。
 
 ## 隔离夹具
 

@@ -4,7 +4,12 @@
 set -eu
 [ "$#" -eq 1 ] || { echo '用法：在 SDK 根目录运行 sh /源码/scripts/build-sdk.sh /源码绝对路径' >&2; exit 2; }
 [ -r rules.mk ] && [ -d include ] || { echo '请从解压后的 OpenWrt / ImmortalWrt SDK 根目录运行' >&2; exit 1; }
+SDK_ROOT=$(pwd -P)
 SOURCE_DIR=$(cd "$1" && pwd -P)
+case "${EASY_DISCOVERY_FULL_BUILD:-0}" in
+    0|1) ;;
+    *) echo 'EASY_DISCOVERY_FULL_BUILD 仅支持 0 或 1' >&2; exit 2 ;;
+esac
 [ -f "$SOURCE_DIR/Makefile" ] && [ -f "$SOURCE_DIR/root/usr/libexec/luci-easy-discovery" ] || {
     echo '源码目录不完整' >&2; exit 1;
 }
@@ -19,9 +24,28 @@ else
     ln -s "$SOURCE_DIR" "$PACKAGE_PATH"
 fi
 sed -i '/^CONFIG_PACKAGE_luci-app-easy-discovery=/d; /^# CONFIG_PACKAGE_luci-app-easy-discovery is not set/d' .config
+for SDK_SELECTION in ALL ALL_NONSHARED ALL_KMODS; do
+    sed -i "/^CONFIG_${SDK_SELECTION}=/d; /^# CONFIG_${SDK_SELECTION} is not set/d" .config
+    printf '# CONFIG_%s is not set\n' "$SDK_SELECTION" >> .config
+done
 printf '%s\n' 'CONFIG_PACKAGE_luci-app-easy-discovery=m' >> .config
 make defconfig
-make package/luci-app-easy-discovery/compile V=s
+# Only skip dependency compilation when the actual SDK metadata proves this
+# remains a script-only package without direct ABI or host/build dependencies.
+if [ "${EASY_DISCOVERY_FULL_BUILD:-0}" = 0 ] && grep -qx 'CONFIG_SDK=y' .config && \
+    perl -I "$SDK_ROOT/scripts" "$SOURCE_DIR/scripts/check-package-only-abi.pl" \
+        "$SDK_ROOT/tmp/.packageinfo" "$SOURCE_DIR/Makefile"; then
+    if grep -qx 'CONFIG_USE_APK=y' .config; then
+        # NO_DEPS also skips this SDK prerequisite: prepare it explicitly using
+        # the SDK's own rule, which creates the private key before the public key.
+        make "$SDK_ROOT/public-key.pem" V=s
+    fi
+    echo '使用 SDK 原生打包，跳过不需要重复编译的运行依赖'
+    make -j2 package/luci-app-easy-discovery/compile NO_DEPS=1 V=s
+else
+    echo '使用包含依赖编译的完整构建路径'
+    make -j2 package/luci-app-easy-discovery/compile V=s
+fi
 if grep -qx 'CONFIG_USE_APK=y' .config; then
     PACKAGE_FORMAT=apk
 else
