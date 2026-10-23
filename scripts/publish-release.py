@@ -58,7 +58,9 @@ def prepare_assets(source: Path, output: Path, sha: str) -> str:
         raise ValueError("发布暂存目录必须不存在，防止混入旧文件")
     output.mkdir(parents=True)
     for name in sorted(hashes):
-        shutil.copyfile(source / name, output / name)
+        # GitHub 会改写纯中文附件名，Release 附件统一用稳定英文名。
+        target = "build-info.txt" if name == "构建信息.txt" else name
+        shutil.copyfile(source / name, output / target)
     shutil.copyfile(apk, output / f"{PACKAGE}.apk")
     # 完整 ZIP 使用原产物及其校验清单，下载一次即可获得相互匹配的包和公钥。
     with zipfile.ZipFile(output / "easy-discovery.zip", "w", zipfile.ZIP_DEFLATED) as archive:
@@ -112,7 +114,8 @@ def publish(source: Path, env: dict[str, str]) -> str:
         release = json.loads(gh("release", "view", tag, "--repo", repo, "--json", "assets,url,isDraft"))
         remote = {a["name"]: a["size"] for a in release["assets"]}
         if not release["isDraft"] or remote != {p.name: p.stat().st_size for p in paths}:
-            raise ValueError("Release 附件不完整，保留草稿，不更新公开下载")
+            raise ValueError(f"Release 附件不完整，保留草稿：远端={remote}，本地="
+                             f"{ {p.name: p.stat().st_size for p in paths} }")
         latest = False
         if not prerelease:
             head = json.loads(gh("api", f"repos/{repo}/git/ref/heads/main"))["object"]["sha"]

@@ -46,6 +46,8 @@ class Publication(unittest.TestCase):
     def test_bundle_alias_and_checksums(self):
         self.assertEqual(self.prepare(), "0.1.0-r3")
         output = self.root / "output"
+        self.assertTrue(all(p.name.isascii() for p in output.iterdir()))
+        self.assertEqual((output / "build-info.txt").read_bytes(), (self.source / "构建信息.txt").read_bytes())
         self.assertEqual((output / "luci-app-easy-discovery.apk").read_bytes(), (self.source / APK).read_bytes())
         with zipfile.ZipFile(output / "easy-discovery.zip") as archive:
             self.assertEqual(set(archive.namelist()), {p.name for p in self.source.iterdir()})
