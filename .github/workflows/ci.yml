@@ -2,8 +2,9 @@ name: 测试与 APK 构建
 
 on:
   push:
+    # 所有分支的代码推送均自动测试并打包，包括 main 和带斜杠的功能分支。
     branches:
-      - 'ci/**'
+      - '**'
   workflow_dispatch:
     inputs:
       build_package:
