@@ -23,9 +23,10 @@ printf '%s\n' 'CONFIG_PACKAGE_luci-app-easy-discovery=m' >> .config
 make defconfig
 make package/luci-app-easy-discovery/compile V=s
 if grep -qx 'CONFIG_USE_APK=y' .config; then
-    echo '已按当前 SDK 的 APK 格式构建：'
-    find bin -type f -name 'luci-app-easy-discovery*.apk' -print
+    PACKAGE_FORMAT=apk
 else
-    echo '已按当前 SDK 的 IPK 格式构建：'
-    find bin -type f -name 'luci-app-easy-discovery*.ipk' -print
+    PACKAGE_FORMAT=ipk
 fi
+PACKAGE_FILES=$(find bin -type f -name "luci-app-easy-discovery*.$PACKAGE_FORMAT" -print)
+[ -n "$PACKAGE_FILES" ] || { echo '构建命令结束但未生成应用安装包，请检查软件包选择和构建输出' >&2; exit 1; }
+printf '已按当前 SDK 的 %s 格式构建：\n%s\n' "$PACKAGE_FORMAT" "$PACKAGE_FILES"

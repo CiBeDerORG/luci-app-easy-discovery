@@ -1,0 +1,8 @@
+{
+  "name": "ImmortalWrt SNAPSHOT qualcommax/ipq60xx",
+  "base_url": "https://downloads.immortalwrt.org/snapshots/targets/qualcommax/ipq60xx/",
+  "sdk_prefix": "immortalwrt-sdk-qualcommax-ipq60xx_",
+  "target": "qualcommax/ipq60xx",
+  "architecture": "aarch64_cortex-a53",
+  "package_format": "apk"
+}

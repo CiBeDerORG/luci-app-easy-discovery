@@ -1,6 +1,7 @@
 /dist/
 /build/
 /sdk/
+node_modules/
 *.ipk
 *.apk
 *.tar.gz

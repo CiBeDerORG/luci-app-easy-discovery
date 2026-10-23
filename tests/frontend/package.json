@@ -1,0 +1,15 @@
+{
+  "name": "easy-discovery-frontend-tests",
+  "private": true,
+  "version": "0.1.0",
+  "description": "LuCI 前端的隔离 DOM 行为测试，不连接路由器",
+  "scripts": {
+    "test": "node run.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0"
+  }
+}

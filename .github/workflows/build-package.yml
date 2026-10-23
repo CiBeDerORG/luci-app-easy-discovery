@@ -1,6 +1,14 @@
 name: 构建 OpenWrt 软件包
 
 on:
+  workflow_call:
+    inputs:
+      sdk_url:
+        required: true
+        type: string
+      sdk_sha256:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       sdk_url:
@@ -27,10 +35,18 @@ jobs:
     steps:
       - name: 获取项目源码
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: 准备 SDK 运行工具
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential gawk gettext git libncurses-dev libssl-dev python3 rsync unzip zstd file wget curl
+      - name: 缓存已校验的 SDK 下载
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/easy-discovery-sdk-download
+          key: sdk-linux-${{ inputs.sdk_sha256 }}
       - name: 下载并校验固件 SDK
         env:
           SDK_URL: ${{ inputs.sdk_url }}
@@ -43,24 +59,43 @@ jobs:
             *) echo '仅接受 OpenWrt / ImmortalWrt 官方 HTTPS SDK 地址'; exit 1 ;;
           esac
           [[ "$SDK_SHA256" =~ ^[0-9A-Fa-f]{64}$ ]] || { echo 'SDK SHA256 格式不正确'; exit 1; }
-          curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location --max-redirs 4 --connect-timeout 30 --retry 2 --output "$RUNNER_TEMP/sdk.archive" "$SDK_URL"
-          printf '%s  %s\n' "$SDK_SHA256" "$RUNNER_TEMP/sdk.archive" | sha256sum --check -
+          mkdir -p "$RUNNER_TEMP/easy-discovery-sdk-download"
+          SDK_ARCHIVE="$RUNNER_TEMP/easy-discovery-sdk-download/sdk.archive"
+          if [ ! -f "$SDK_ARCHIVE" ]; then
+            curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location --max-redirs 4 --connect-timeout 30 --retry 2 --output "$SDK_ARCHIVE" "$SDK_URL"
+          fi
+          printf '%s  %s\n' "$SDK_SHA256" "$SDK_ARCHIVE" | sha256sum --check -
           mkdir -p "$RUNNER_TEMP/easy-discovery-sdk"
-          tar --extract --file "$RUNNER_TEMP/sdk.archive" --directory "$RUNNER_TEMP/easy-discovery-sdk" --strip-components=1 --no-same-owner --no-same-permissions
+          tar --extract --file "$SDK_ARCHIVE" --directory "$RUNNER_TEMP/easy-discovery-sdk" --strip-components=1 --no-same-owner --no-same-permissions
       - name: 构建应用安装包
+        env:
+          SDK_URL: ${{ inputs.sdk_url }}
+          SDK_SHA256: ${{ inputs.sdk_sha256 }}
         shell: bash
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/easy-discovery-sdk"
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          sh "$GITHUB_WORKSPACE/scripts/build-sdk.sh" "$GITHUB_WORKSPACE"
+          ./scripts/feeds update -a 2>&1 | tee "$RUNNER_TEMP/easy-discovery-build.log"
+          ./scripts/feeds install -a 2>&1 | tee -a "$RUNNER_TEMP/easy-discovery-build.log"
+          sh "$GITHUB_WORKSPACE/scripts/build-sdk.sh" "$GITHUB_WORKSPACE" 2>&1 | tee -a "$RUNNER_TEMP/easy-discovery-build.log"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           find bin -type f \( -name 'luci-app-easy-discovery*.apk' -o -name 'luci-app-easy-discovery*.ipk' \) -exec cp {} "$GITHUB_WORKSPACE/dist/" \;
+          for metadata in version.buildinfo feeds.buildinfo; do
+            if [ -f "$metadata" ]; then cp "$metadata" "$GITHUB_WORKSPACE/dist/"; fi
+          done
+          printf '%s\n' "源码提交：$GITHUB_SHA" "SDK：$SDK_URL" "SDK SHA256：$SDK_SHA256" > "$GITHUB_WORKSPACE/dist/构建信息.txt"
       - name: 上传原生软件包
         uses: actions/upload-artifact@v4
         with:
           name: luci-app-easy-discovery-${{ github.sha }}
           path: dist/*
           if-no-files-found: error
+          retention-days: 14
+      - name: 保存构建日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.sha }}
+          path: ${{ runner.temp }}/easy-discovery-build.log
+          if-no-files-found: ignore
           retention-days: 14

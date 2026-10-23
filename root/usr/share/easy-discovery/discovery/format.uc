@@ -11,9 +11,17 @@ const NOW = time();
 
 function text(value, limit) {
 	if (type(value) != 'string') return null;
-	value = trim(replace(value, /[\x00-\x1f\x7f]/g, ' '));
-	if (!length(value)) return null;
-	return substr(value, 0, limit || 128);
+	// POSIX regular expressions stop at NUL. Filter bounded labels bytewise so
+	// malformed advertisements cannot truncate everything after a control byte.
+	let output = '', maximum = limit || 128;
+	for (let i = 0; i < length(value) && length(output) < maximum; i++) {
+		let character = substr(value, i, 1), code = ord(character);
+		if (code < 32 || code == 127) character = ' ';
+		if (character == ' ' && !length(output)) continue;
+		output += character;
+	}
+	output = trim(output);
+	return length(output) ? output : null;
 }
 function array(value) { return type(value) == 'array' ? value : []; }
 function object(value) { return type(value) == 'object' ? value : {}; }
@@ -263,7 +271,7 @@ function adb(work) {
 	for (let file in inputFiles(work, 'adb')) for (let line in split(read(work + '/' + file) || '', '\n')) {
 		let record = browseRecord(line, array(scope.networks), true);
 		if (!record) continue;
-		delete(record, 'txt');
+		delete record.txt;
 		let key = record.iface + '\x1f' + record.protocol + '\x1f' + record.instance + '\x1f' + record.address + '\x1f' + record.port;
 		if (seen[key]) continue;
 		seen[key] = true;

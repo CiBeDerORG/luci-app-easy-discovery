@@ -55,7 +55,10 @@ return view.extend({
 		function setPage(page){state.page=page;draw();}
 		function applySnapshot(kind,result){
 			if(result.status==='error'){
-				if(result.has_snapshot)state.snapshots[kind]=result;
+				var authBlocked=Array.isArray(result.errors)&&result.errors.some(function(error){return error.code==='auth_suspended'||error.code==='auth_unavailable';});
+				// The authorization barrier intentionally returns an empty result.
+				// Replace the browser copy too, instead of keeping stale rows visible.
+				if(result.has_snapshot||authBlocked)state.snapshots[kind]=result;
 				state.errors[kind]=snapshotError(result);return false;
 			}
 			state.snapshots[kind]=result;state.errors[kind]=null;return true;

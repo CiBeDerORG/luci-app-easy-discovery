@@ -1,0 +1,81 @@
+name: 测试与 APK 构建
+
+on:
+  push:
+    branches:
+      - 'ci/**'
+  workflow_dispatch:
+    inputs:
+      build_package:
+        description: 测试通过后构建当前设备平台的 APK
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: easy-discovery-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  tests:
+    name: 源码与行为测试
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      sdk_url: ${{ steps.sdk.outputs.sdk_url }}
+      sdk_sha256: ${{ steps.sdk.outputs.sdk_sha256 }}
+    steps:
+      - name: 获取源码
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: 准备 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/frontend/package-lock.json
+      - name: 准备本地运行测试依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake pkg-config libjson-c-dev busybox curl
+          sh scripts/prepare-test-runtime.sh "$RUNNER_TEMP/easy-discovery-test-runtime"
+          sh tests/backend/prepare-runtime.sh "$RUNNER_TEMP/easy-discovery-backend-runtime"
+          npm ci --prefix tests/frontend --ignore-scripts --no-audit --no-fund
+      - name: 检查源码与权限契约
+        run: python3 tests/check-source.py
+      - name: 执行发现运行测试
+        run: python3 tests/discovery-fixtures.py "$RUNNER_TEMP/easy-discovery-test-runtime/ucode-build/ucode"
+      - name: 执行页面交互测试
+        run: npm test --prefix tests/frontend
+      - name: 执行授权与环境事务测试
+        run: >-
+          python3 tests/backend/run.py
+          --runtime "$RUNNER_TEMP/easy-discovery-backend-runtime"
+          --ucode "$RUNNER_TEMP/easy-discovery-test-runtime/ucode-build/ucode"
+      - name: 解析官方 SDK 与校验值
+        id: sdk
+        if: github.event_name == 'push' || inputs.build_package
+        run: python3 scripts/resolve-ci-sdk.py --output "$RUNNER_TEMP/easy-discovery-sdk-input.json"
+      - name: 保存本次 SDK 来源记录
+        if: success() && (github.event_name == 'push' || inputs.build_package)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-source-${{ github.sha }}
+          path: ${{ runner.temp }}/easy-discovery-sdk-input.json
+          retention-days: 14
+
+  package:
+    name: 构建当前平台 APK
+    needs: tests
+    if: github.event_name == 'push' || inputs.build_package
+    uses: ./.github/workflows/build-package.yml
+    with:
+      sdk_url: ${{ needs.tests.outputs.sdk_url }}
+      sdk_sha256: ${{ needs.tests.outputs.sdk_sha256 }}

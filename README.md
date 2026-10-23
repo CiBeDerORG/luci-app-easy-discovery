@@ -86,7 +86,9 @@ file.exec /usr/libexec/luci-avahi-scan scan
 
 ## 开发与验证
 
-当前版本为 `0.1.0`。代码包含发现后端、RPCD ACL、LuCI 四页界面和手动构建工作流。没有真实 OpenWrt 环境的检查不能替代目标固件验收，已执行和未执行的检查记录在 [验证说明](docs/VERIFICATION.md)。
+当前版本为 `0.1.0`，软件包修订号 `2`。代码包含发现后端、RPCD ACL、LuCI 四页界面、运行测试和 APK 构建工作流。测试包含真实 ucode 格式化、隔离授权/环境事务及 DOM 页面交互；具体结果与模拟边界见 [验证说明](docs/VERIFICATION.md)。
+
+**测试与 APK 构建** 工作流可在 Actions 页面手动运行，也会在 `ci/**` 分支推送时运行。默认构建平台为已确认的 `qualcommax/ipq60xx`，每轮解析官方 ImmortalWrt SNAPSHOT SDK、校验下载并保存版本记录。普通 `main` 提交不会自行派发测试或构建，便于按调试模式决定何时执行。
 
 Git 提交标题与正文使用中文。用户明确指定“改 BUG 模式”或“调试模式”时，不运行测试、构建、lint 或 CI；正常开发只做与改动风险相关的检查。
 

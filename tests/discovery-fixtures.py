@@ -15,14 +15,17 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 FORMAT = ROOT / "root/usr/share/easy-discovery/discovery/format.uc"
 UCODE = sys.argv[1] if len(sys.argv) == 2 else "ucode"
+EXECUTIONS = 0
 
 
 def call(action, work, *args, expected=0):
+    global EXECUTIONS
     proc = subprocess.run(
         [UCODE, str(FORMAT), action, str(work), *map(str, args)],
         capture_output=True, text=True, timeout=8, check=False,
     )
     assert proc.returncode == expected, (action, proc.returncode, proc.stderr)
+    EXECUTIONS += 1
     return json.loads(proc.stdout) if action != "arp-plan" else proc.stdout
 
 
@@ -64,6 +67,13 @@ with tempfile.TemporaryDirectory(prefix="easy-discovery-fixtures-") as temp:
     adb = call("adb", work)
     assert adb["count"] == 1 and adb["devices"][0]["instance"] == "Phone A;test"
     assert adb["status"] == "ok" and adb["has_snapshot"] is True
+    assert "txt" not in adb["devices"][0]
+
+    # POSIX regex normalization must handle control bytes without compiling a
+    # NUL-containing regex or silently retaining control characters in labels.
+    write(work, "adb", r"=;br-lan;IPv4;Phone\009A\010B\000C\127D;_adb-tls-connect._tcp;local;phone.local;192.168.1.21;37001;")
+    sanitized = call("adb", work)
+    assert sanitized["devices"][0]["instance"] == "Phone A B C D", sanitized
     write(work, "adb", "\n".join(
         f"=;br-lan;IPv4;Phone{i};_adb-tls-connect._tcp;local;p.local;192.168.1.{i+2};37001;" for i in range(40)
     ))
@@ -149,4 +159,4 @@ with tempfile.TemporaryDirectory(prefix="easy-discovery-fixtures-") as temp:
     assert [n["name"] for n in topology["networks"]] == ["lan"]
     assert call("arp-plan", work).splitlines() == ["br-lan 192.168.1.0/24", "br-guest 192.168.1.0/24"]
 
-print("通过：发现范围、ADB 兼容上限、地址归一化、缓存语义、来源富化与失败保留。")
+print(f"通过：{EXECUTIONS} 次 ucode 调用；发现范围、ADB 兼容上限、控制字符、地址归一化、缓存语义、来源富化与失败保留。")

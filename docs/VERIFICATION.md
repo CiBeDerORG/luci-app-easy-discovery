@@ -2,23 +2,39 @@
 
 ## 当前交付状态
 
-本次交付为 Easy Discovery `0.1.0` 的首版源码实现。生产页面使用真实 RPCD 返回值，演示数据只保留在 `docs/ui-preview.html` 的设计原型中。
+本次为 Easy Discovery `0.1.0` 软件包修订号 `2` 的运行测试与 CI 接入。生产页面使用真实 RPCD 返回值，演示数据只保留在 `docs/ui-preview.html` 的设计原型中。
 
-2026-10-23 在开发容器完成以下检查：
+2026-10-23 在开发容器完成以下运行测试：
 
 | 范围 | 结果与含义 |
 | --- | --- |
-| 11 个 Shell 文件 | `sh -n` 通过，仅验证语法 |
-| 6 个 LuCI JavaScript 文件 | 以 LuCI 模块函数形式解析通过，仅验证语法 |
-| 2 个 JSON 配置文件 | 解析通过 |
-| 1 个 Python 夹具文件 | AST 解析通过，未执行夹具 |
-| Actions 工作流 | YAML 解析通过，确认仅手动触发、仓库权限为只读 |
-| ACL 与资源契约 | 四项外部角色各只允许对应发现方法；旧角色仅固定扫描命令；管理员命令、菜单和页面资源路径存在 |
-| 源码交叉审阅 | 核对快照读取不触发采集、权限变更暂停屏障、旧入口兼容、包任务终态和真实服务状态回读 |
+| 发现格式化 | 13 次真实 ucode 调用通过，包含 23 个业务断言和每次退出码检查 |
+| 前端交互 | 17 项 jsdom 行为测试通过，执行实际 LuCI 模块，替换加载桥接与 RPC 传输 |
+| 授权与环境事务 | 14 项隔离测试通过，执行真实 BusyBox ash、UCI、jshn、OpenSSL 与 ucode；权限用例遍历 1–15 全部掩码 |
+| 源码与 ACL 契约 | 检查 Shell、JavaScript、JSON、Python 语法，外部权限边界及菜单/资源路径 |
+| SDK 解析 | 实际读取官方元数据并生成 SDK URL、SHA256、版本及 feeds 来源记录 |
 
-没有连接真实路由器，没有执行 SDK 构建，也没有手动派发 GitHub Actions。上述检查不代表浏览器布局、发现结果或授权事务已通过运行测试。
+测试暴露并修复三处生产问题：ucode 属性删除语法错误；含 NUL 的控制字符正则导致运行错误/截断；授权屏障返回空结果时前端继续保留旧设备快照。修复后相关回归用例均通过。
 
-当前开发容器没有 `ucode`、OpenWrt 的 UCI/ubus 和包管理器运行环境，因此不能声称 ucode 格式化、RPCD 登录/会话失效、包安装和发现采集已经通过运行验证。首次安装应按 [构建说明中的验收步骤](BUILD.md#首次验收顺序) 在目标固件检查。
+没有连接真实路由器。后端测试中的 ubus 传输、软件包管理器和 init 服务采用有状态替身；这些测试不能证明真实 RPCD ACL、网络广播和固件包安装已经集成通过。开发容器没有浏览器二进制，未执行 CSS 截图验收。
+
+Actions 的 **测试与 APK 构建** 工作流会在干净 Ubuntu runner 中重新构建测试运行时并执行上述测试，通过后再用官方 SDK 构建。每次 CI 的实际结果、日志与安装包以对应 Actions 运行记录为准，不能把仅完成工作流配置视为 CI 已通过。首次安装按 [目标设备验收步骤](BUILD.md#首次验收顺序) 检查。
+
+## 复现全部本地测试
+
+Ubuntu 需要 `build-essential`、`cmake`、`pkg-config`、`libjson-c-dev`、`busybox`、`curl`、Git、Python 3、OpenSSL 和 Node.js 22。运行时只写入指定临时目录。
+
+```sh
+sh scripts/prepare-test-runtime.sh /tmp/easy-discovery-test-runtime
+sh tests/backend/prepare-runtime.sh /tmp/easy-discovery-backend-runtime
+npm ci --prefix tests/frontend --ignore-scripts --no-audit --no-fund
+python3 tests/check-source.py
+python3 tests/discovery-fixtures.py /tmp/easy-discovery-test-runtime/ucode-build/ucode
+npm test --prefix tests/frontend
+python3 tests/backend/run.py --runtime /tmp/easy-discovery-backend-runtime --ucode /tmp/easy-discovery-test-runtime/ucode-build/ucode
+```
+
+测试运行时固定官方源码：ucode `6cfc97fbfe1f3a5226245e62fdf8e3b150d70859`、libubox `da2d205a5cf3e877c45a2eec488218cbaf452e7d`、UCI `74f6277aabffc943d026f406df57c22595134c42`。Node 测试使用锁定依赖的 `jsdom@26.1.0`。
 
 ## 隔离夹具
 
