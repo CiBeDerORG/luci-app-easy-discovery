@@ -1,6 +1,7 @@
 'use strict';
 'require baseclass';
 'require ui';
+'require easy-discovery.toast as toast';
 
 var paths = {
 	network: ['M8 3h8v5H8zM12 8v5M5 17v-4h14v4M2 17h6v4H2zM9 17h6v4H9zM16 17h6v4h-6zM12 13v4'],
@@ -80,7 +81,7 @@ function modal(title, body, actions) {
 	ui.showModal(title, [E('div', {'class': 'ed-root ed-modal-body'}, body),
 		E('div', {'class': 'ed-root ed-modal-actions'}, actions || [button('关闭', ui.hideModal)])]);
 }
-function notify(message, error) { ui.addNotification(null, E('p', [text(message)]), error ? 'warning' : 'info'); }
+function notify(message, error) { return toast.show(text(message), error); }
 function copy(value) {
 	value = String(value);
 	var result;

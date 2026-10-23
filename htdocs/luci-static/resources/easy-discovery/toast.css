@@ -1,0 +1,28 @@
+/* Floating feedback does not resize the LuCI page or block its controls. */
+.ed-root.ed-toast-layer {
+	position:fixed; top:24px; right:24px; z-index:10000;
+	width:min(420px,calc(100vw - 32px)); display:flex; flex-direction:column;
+	gap:10px; pointer-events:none; margin:0; padding:0;
+}
+.ed-root .ed-toast {
+	display:flex; align-items:flex-start; gap:10px; padding:13px 14px;
+	border:1px solid #dce7e1; border-radius:10px; background:#fff;
+	color:#25344d; box-shadow:0 8px 30px #152f5426; pointer-events:auto;
+	animation:ed-toast-enter .18s ease-out;
+}
+.ed-root .ed-toast.warning { border-color:#ecd5a8; background:#fffcf4; }
+.ed-root .ed-toast-symbol {
+	flex:none; display:grid; place-items:center; width:21px; height:21px;
+	border-radius:50%; background:#e8f6ee; color:#24834b; font-weight:700;
+}
+.ed-root .ed-toast.warning .ed-toast-symbol { background:#fff0cc; color:#946100; }
+.ed-root .ed-toast-message { flex:1; min-width:0; overflow-wrap:anywhere; line-height:1.6; }
+.ed-root button.ed-toast-close {
+	flex:none; display:grid; place-items:center; width:24px; height:24px;
+	padding:0; border:0; margin:-2px -4px 0 0; background:transparent;
+	box-shadow:none; color:#6c7a8e; font-size:20px; line-height:1; cursor:pointer;
+}
+.ed-root button.ed-toast-close:hover { background:#edf1f7; border-radius:5px; }
+@keyframes ed-toast-enter { from { opacity:0; transform:translateY(-7px); } to { opacity:1; transform:translateY(0); } }
+@media(max-width:650px) { .ed-root.ed-toast-layer { top:16px; right:16px; } }
+@media(prefers-reduced-motion:reduce) { .ed-root .ed-toast { animation:none; } }

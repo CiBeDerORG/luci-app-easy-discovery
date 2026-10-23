@@ -91,8 +91,41 @@ ed_capture() {
     _ed_rc=0
     # Limit hostile advertisements / oversized RPC responses on disk, not only
     # after loading them. Linux file-size units are 512 or 1024 bytes by shell.
-    (ulimit -f 1024; exec "$@") > "$_ed_output" 2>/dev/null || _ed_rc=$?
+    (ulimit -f 1024; exec "$@") > "$_ed_output" 2>"$_ed_output.stderr" || _ed_rc=$?
     printf '%s\n' "$_ed_rc" > "$_ed_output.rc"
+}
+
+# avahi-browse has no interface-selection option. Browse once and let format.uc
+# reject records outside the validated interface/subnet allowlist. Do not use
+# -t: the explicit window gives asynchronous resolvers time to return addresses.
+ed_browse() (
+    _ed_output=$1
+    _ed_window=$2
+    _ed_kind=$3
+    case "$_ed_window" in 3|8) ;; *) return 2 ;; esac
+    IFS='. ' read -r _ed_started _ed_rest < /proc/uptime
+    case "$_ed_kind" in
+        adb) ed_capture "$_ed_output" timeout "$_ed_window" avahi-browse -rp _adb-tls-connect._tcp ;;
+        mdns) ed_capture "$_ed_output" timeout "$_ed_window" avahi-browse -arp ;;
+        *) return 2 ;;
+    esac
+    _ed_rc=$(cat "$_ed_output.rc")
+    # BusyBox timeout can return the terminated child's 128 + SIGTERM rather
+    # than GNU timeout's 124. Only accept it after our full collection window;
+    # an early signal, invalid option or D-Bus failure must remain an error.
+    if [ "$_ed_rc" = 143 ]; then
+        IFS='. ' read -r _ed_finished _ed_rest < /proc/uptime
+        if [ "$((_ed_finished - _ed_started))" -ge "$_ed_window" ]; then
+            printf '124\n' > "$_ed_output.rc"
+        fi
+    fi
+)
+
+ed_browse_error() {
+    _ed_browse_rc=$(cat "$1.rc" 2>/dev/null || printf 'unknown')
+    _ed_detail=$(head -c 384 "$1.stderr" 2>/dev/null | tr '\000-\037\177' ' ' || true)
+    [ -n "$_ed_detail" ] || _ed_detail='请检查 Avahi、D-Bus 服务以及 avahi-utils 安装状态'
+    ed_error browse_failed "Avahi ADB 发现失败（退出码 $_ed_browse_rc）：$_ed_detail。未覆盖上次成功快照。"
 }
 
 ed_scope() {

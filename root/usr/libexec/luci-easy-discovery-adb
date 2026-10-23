@@ -17,20 +17,15 @@ esac
 pidof avahi-daemon >/dev/null 2>&1 || ed_error service_stopped 'Avahi 服务未运行'
 ed_begin
 ed_scope
-ucode "$ED_FORMAT" ifaces "$ED_WORK" > "$ED_WORK/ifaces" 2>/dev/null || ed_error scope_unavailable '无法读取发现接口'
-index=0
-while IFS= read -r iface; do
-    case "$iface" in *[!A-Za-z0-9_.:-]*|-*|'') continue ;; esac
-    index=$((index + 1))
-    [ "$index" -le 8 ] || break
-    ed_capture "$ED_WORK/adb-$index" timeout 8 avahi-browse -i "$iface" -rpt _adb-tls-connect._tcp &
-    ED_CHILDREN="$ED_CHILDREN $!"
-done < "$ED_WORK/ifaces"
+# Output still passes the strict interface and subnet checks in format.uc.
+ed_browse "$ED_WORK/adb" 8 adb &
+ED_CHILDREN="$!"
 wait
 ED_CHILDREN=
-[ "$index" -gt 0 ] || ed_error scope_unavailable '没有可以发现的本地网络接口'
-for rcfile in "$ED_WORK"/adb-*.rc; do
-    rc=$(cat "$rcfile")
-    [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ] || ed_error browse_failed '部分接口的 Avahi 发现失败，已保留上次成功结果'
-done
+rc=$(cat "$ED_WORK/adb.rc" 2>/dev/null || printf '1')
+case "$rc" in
+    0|124) ;;
+    *) ed_browse_error "$ED_WORK/adb" ;;
+esac
+
 ed_publish

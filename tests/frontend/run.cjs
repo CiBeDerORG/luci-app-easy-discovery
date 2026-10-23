@@ -124,6 +124,7 @@ async function harness(options = {}) {
     const source = fs.readFileSync(path.join(RESOURCES, name + '.js'), 'utf8');
     return window.Function(...Object.keys(globals), source)(...Object.values(globals));
   }
+  globals.toast = load('easy-discovery/toast');
   globals.ed = load('easy-discovery/common');
   globals.api = load('easy-discovery/api');
   globals.discovery = load('easy-discovery/discovery');
@@ -256,7 +257,7 @@ test('包安装立即返回成功时回读组件，不启动进度轮询', async
   assert.match(h.rows()[0].textContent, /已安装/);
   assert.equal(h.button('检查更新', h.rows()[0]).disabled, false);
   assert.equal(h.calls.filter(key => key.startsWith('environment package job')).length, 0);
-  assert.equal(h.pendingTimers.size, 0);
+  assert.equal([...h.pendingTimers.values()].filter(timer => timer.delay === 2000).length, 0);
 });
 
 test('包安装立即失败时展示失败与实际组件状态', async t => {
@@ -269,7 +270,7 @@ test('包安装立即失败时展示失败与实际组件状态', async t => {
   assert.match(h.root.textContent, /软件包任务 · 执行失败/);
   assert.match(h.rows()[0].textContent, /未安装/);
   assert.equal(h.button('安装', h.rows()[0]).disabled, false);
-  assert.equal(h.pendingTimers.size, 0);
+  assert.equal([...h.pendingTimers.values()].filter(timer => timer.delay === 2000).length, 0);
 });
 
 test('任务消失时停止旧轮询并解除按钮锁定', async t => {
@@ -342,3 +343,39 @@ for (const code of ['auth_suspended', 'auth_unavailable']) {
     assert.equal(h.calls.filter(key => key.endsWith('.scan')).length, 0);
   });
 }
+
+test('发现完成使用自动消失的 toast，不添加常驻通知', async t => {
+  const h = await harness(); t.after(h.close);
+  await h.click('立即发现设备');
+  assert.match(h.window.document.querySelector('.ed-toast.success').textContent, /发现已完成/);
+  assert.equal(h.window.document.querySelector('#notifications').textContent, '');
+  let entry = [...h.pendingTimers].find(([, timer]) => timer.delay === 4000);
+  assert.ok(entry); h.pendingTimers.delete(entry[0]); entry[1].fn();
+  assert.equal(h.window.document.querySelector('.ed-toast'), null);
+  h.queue('devices.scan', { ...h.state.devices, status: 'partial', errors: [{source:'mdns', message:'mDNS 暂不可用'}] });
+  await h.click('立即发现设备');
+  assert.match(h.window.document.querySelector('.ed-toast.warning').textContent, /部分来源不可用/);
+  entry = [...h.pendingTimers].find(([, timer]) => timer.delay === 6000);
+  assert.ok(entry); h.pendingTimers.delete(entry[0]); entry[1].fn();
+  assert.equal(h.window.document.querySelector('.ed-toast'), null);
+  assert.match(h.root.querySelector('.ed-source-errors').textContent, /mDNS 暂不可用/);
+});
+
+test('toast 支持去重、限量、手动关闭、纯文本及离页清理', async t => {
+  const h = await harness(); t.after(h.close);
+  const hostile = '<img src=x onerror="window.injected=true">';
+  const node = h.modules.ed.notify(hostile);
+  h.modules.ed.notify(hostile);
+  assert.equal(h.window.document.querySelectorAll('.ed-toast').length, 1);
+  assert.equal(h.pendingTimers.size, 1);
+  assert.ok(node.textContent.includes(hostile));
+  assert.equal(node.querySelector('img'), null);
+  node.querySelector('.ed-toast-close').click();
+  assert.equal(h.pendingTimers.size, 0);
+  for (let i = 0; i < 4; i++) h.modules.ed.notify('提示 ' + i);
+  assert.equal(h.window.document.querySelectorAll('.ed-toast').length, 3);
+  assert.equal(h.pendingTimers.size, 3);
+  h.window.dispatchEvent(new h.window.Event('pagehide'));
+  assert.equal(h.window.document.querySelector('.ed-toast-layer'), null);
+  assert.equal(h.pendingTimers.size, 0);
+});

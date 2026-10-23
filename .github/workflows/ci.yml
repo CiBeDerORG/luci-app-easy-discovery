@@ -50,6 +50,8 @@ jobs:
           npm ci --prefix tests/frontend --ignore-scripts --no-audit --no-fund
       - name: 检查源码与权限契约
         run: python3 tests/check-source.py
+      - name: 验证 Avahi 命令与超时兼容
+        run: python3 tests/avahi-cli.py
       - name: 执行发现运行测试
         run: python3 tests/discovery-fixtures.py "$RUNNER_TEMP/easy-discovery-test-runtime/ucode-build/ucode"
       - name: 执行页面交互测试

@@ -254,8 +254,8 @@ function arpPlan(scope) {
 	return targets;
 }
 function inputFiles(work, prefix) {
-	// The unsuffixed form is useful for isolated fixtures. Production captures
-	// one bounded file per selected interface, never arbitrary caller filenames.
+	// Production captures one bounded Avahi stream and filters every record by
+	// interface and subnet. Retain suffixed input support for existing fixtures.
 	if (read(work + '/' + prefix + '.rc') != null || read(work + '/' + prefix) != null) return [prefix];
 	let files = [];
 	for (let i = 1; i <= 8; i++) if (read(work + '/' + prefix + '-' + i + '.rc') != null) push(files, prefix + '-' + i);
@@ -303,7 +303,11 @@ function devices(work, oldPath) {
 			return true;
 		}
 		push(result.sources, { source: name, status: 'error' });
-		push(result.errors, { source: name, code: rc == 124 ? 'timeout' : 'source_unavailable', message: name + ' 信息读取失败，其他来源仍可使用' });
+		let label = name == 'mdns' || match(name, /^mdns-[1-8]$/) ? 'mDNS 服务信息' : name;
+		let detail = text(read(work + '/' + file + '.stderr'), 240);
+		push(result.errors, { source: name, code: rc == 124 ? 'timeout' : 'source_unavailable',
+			exit_code: rc, message: label + '读取失败（退出码 ' + rc + '）' +
+			(detail ? '：' + detail : '') + '；其他来源仍可使用' });
 		return false;
 	}
 	function invalidSource(name, message) {
