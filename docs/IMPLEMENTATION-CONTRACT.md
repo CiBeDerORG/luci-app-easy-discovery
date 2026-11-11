@@ -20,10 +20,10 @@
 
 固定命令 /usr/libexec/luci-easy-discovery：
 
-- status → {status:'ok',package_manager:'apk'|'opkg'|'none',components:[{id:'avahi'|'dbus'|'arp',name,installed:'installed'|'partial'|'missing',packages:[{name,installed:boolean,version:string|null}],has_service:boolean,running:boolean,enabled:boolean}],job:null|{id,state,action,component,message,output}}。
+- status → {status:'ok',package_manager:'apk'|'opkg'|'none',components:[{id:'avahi'|'dbus'|'arp'|'etherwake',name,installed:'installed'|'partial'|'missing',packages:[{name,installed:boolean,version:string|null}],has_service:boolean,running:boolean,enabled:boolean}],job:null|{id,state,action,component,message,output}}。
 - service COMPONENT ACTION，COMPONENT=avahi|dbus，ACTION=start|stop|restart|enable|disable → {status:'ok',message}；D-Bus 的 stop/restart 影响 Avahi，UI 明确提示。启动 Avahi 时先启动 D-Bus。
 - discovery arp 0|1 → 保存 ARP 扫描参与设置；status 另返回 settings.arp_scan 与 settings.networks。开启要求已安装，关闭不要求已安装，卸载前应先关闭参与。
-- package plan ACTION COMPONENT，ACTION=install|upgrade|remove，COMPONENT=avahi|dbus|arp → {status:'ok',output,message}。使用固定包名的包管理器模拟；卸载需已停止服务。
+- package plan ACTION COMPONENT，ACTION=install|upgrade|remove，COMPONENT=avahi|dbus|arp|etherwake → {status:'ok',output,message}。使用固定包名的包管理器模拟；卸载需已停止服务。
 - package apply ACTION COMPONENT → {status:'ok',job:{id,state:'running'|'succeeded'|'failed'},message}，异步执行并只保留单个活动作业；极短任务可能已进入终态。
 - package job JOB_ID → {status:'ok',job:{id,state:'running'|'succeeded'|'failed',action,component,message,output}}。前端只在明确发起安装任务期间轮询，终态立即停止。
 - 错误返回 {status:'error',message,error:{code,message}}，可能伴随非零进程返回值；前端需读取 stdout 中的 JSON 再显示。
@@ -32,8 +32,8 @@
 
 固定命令 /usr/libexec/luci-easy-discovery-auth：
 
-- status → {status:'ok',state:'managed'|'absent'|'conflict',username:'easyadb',permissions:{deviceList:boolean,deviceScan:boolean,adbList:boolean,adbScan:boolean},legacy_adb_scan:boolean,legacy_only:boolean,suspended:boolean,recovery_required:boolean}。
-- create MASK、permissions MASK：MASK 1..15，位值 deviceList=1、deviceScan=2、adbList=4、adbScan=8。创建/编辑权限均由管理员明确选择。
+- status → {status:'ok',state:'managed'|'absent'|'conflict',username:'easyadb',permissions:{deviceList:boolean,deviceScan:boolean,adbList:boolean,adbScan:boolean,deviceWake:boolean},legacy_adb_scan:boolean,legacy_only:boolean,suspended:boolean,recovery_required:boolean}。
+- create MASK、permissions MASK：MASK 1..31，位值 deviceList=1、deviceScan=2、adbList=4、adbScan=8、deviceWake=16。创建/编辑权限均由管理员明确选择。
 - rotate：轮换密钥，保留权限。
 - revoke：撤销专用授权。
 - create/rotate 成功时额外返回 password，一次性显示，不写日志、不缓存、不放 URL 或 localStorage。
@@ -62,3 +62,10 @@
 - 第一版正常开发可做本地语法与隔离夹具检查；没有 OpenWrt 环境时不声称真实路由器已验证。
 - 代码、构建说明、迁移说明、接口协议及实施进度提交到仓库。
 
+
+## 网络唤醒
+
+- 可选组件 `etherwake`：复用软件包安装、更新、卸载，不提供服务启停或自启控制。
+- RPCD 对象 `easy-discovery.wol` 的 `wake` 方法接收字符串 `mac`、`network`，调用 `/usr/libexec/luci-easy-discovery-wol`。接口与错误字段见 [API](API.md#网络唤醒)。
+- LuCI 管理员通过写权限调用；专用账号仅在明确授权 `deviceWake` 时可调用。沿用现有授权暂停屏障、会话撤销机制和本地网络白名单。
+- 设备列表每行均展示唤醒按钮，不按类型或观测状态隐藏；缺少有效 MAC 或允许网络时返回错误。成功仅表示发包，不改变发现状态。

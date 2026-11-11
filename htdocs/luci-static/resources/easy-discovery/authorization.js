@@ -11,15 +11,15 @@ function chips(authorization) {
 
 return baseclass.extend({
 	render: function(ctx) {
-		var state=ctx.state, authorization=state.authorization, locked=!state.canWrite||state.busy.auth||state.busy.environment||state.busy.devices||state.busy.adb||!!(state.packageJob&&state.packageJob.state==='running');
+		var state=ctx.state, authorization=state.authorization, locked=!state.canWrite||state.busy.auth||state.busy.environment||state.busy.devices||state.busy.adb || state.busy.wol||!!(state.packageJob&&state.packageJob.state==='running');
 		var managed=authorization&&authorization.state==='managed', conflict=authorization&&authorization.state==='conflict';
 		var suspended=!!(authorization&&(authorization.suspended||authorization.recovery_required));
 		var secure=window.location.protocol==='https:', content=[];
 		if(state.errors.auth)content.push(ed.note(state.errors.auth,'error'));
-		content.push(E('div',{'class':'ed-section-top'},[E('div',[E('h2',['接口授权']),E('p',['为 EasyADB 或其他客户端配置发现能力的访问权限。'])]),ed.badge('RPCD 会话认证','blue')]));
+		content.push(E('div',{'class':'ed-section-top'},[E('div',[E('h2',['接口授权']),E('p',['为 EasyADB 或其他客户端配置发现与网络唤醒的访问权限。'])]),ed.badge('RPCD 会话认证','blue')]));
 		if(!secure)content.push(ed.note('当前连接使用 HTTP，未启用传输加密。请通过 HTTPS 地址管理和调用接口，以保护账号、密钥与会话。','warning'));
 		if(conflict)content.push(ed.note('检测到同名账号或非本应用管理的权限配置。为避免覆盖现有账号，已禁止修改，请由管理员检查 RPCD 配置。','error'));
-		if(suspended)content.push(ed.note('专用账号已暂停。请排除授权操作报告的错误，再重新生成密钥或撤销授权；恢复前客户端无法使用发现接口。','error'));
+		if(suspended)content.push(ed.note('专用账号已暂停。请排除授权操作报告的错误，再重新生成密钥或撤销授权；恢复前客户端无法使用发现与唤醒接口。','error'));
 		if(authorization&&authorization.legacy_only)content.push(ed.note('已识别旧 EasyADB 授权，保留原账号与密码。旧账号仅可使用原扫描入口；如需读取新列表或调用新发现接口，请明确编辑权限。','warning'));
 		if(!authorization){
 			content.push(E('div',{'class':'ed-card'},[ed.empty('授权状态暂不可用','读取成功后才能管理专用账号。',ed.button('刷新授权状态',ctx.actions.refreshAuth,{icon:'refresh',disabled:state.busy.auth}))]));
@@ -41,9 +41,9 @@ return baseclass.extend({
 			]),E('div',{'class':'ed-auth-actions'},buttons)])]);
 		var guide=E('aside',{'class':'ed-card ed-guide'},[E('h3',[ed.icon('link'),'如何接入']),
 			E('div',{'class':'ed-guide-steps'},[
-				E('div',{'class':'ed-guide-step'},[E('span',['1']),E('div',[E('strong',['创建专用授权']),E('p',['选择需要的发现能力，保存一次性显示的密钥。'])])]),
+				E('div',{'class':'ed-guide-step'},[E('span',['1']),E('div',[E('strong',['创建专用授权']),E('p',['选择需要的发现或唤醒能力，保存一次性显示的密钥。'])])]),
 				E('div',{'class':'ed-guide-step'},[E('span',['2']),E('div',[E('strong',['填写连接信息']),E('p',['在客户端中填写接口地址、账号与密钥。'])])]),
-				E('div',{'class':'ed-guide-step'},[E('span',['3']),E('div',[E('strong',['登录后调用接口']),E('p',['取得 RPCD 会话后读取列表，或按需发起发现。'])])])
+				E('div',{'class':'ed-guide-step'},[E('span',['3']),E('div',[E('strong',['登录后调用接口']),E('p',['取得 RPCD 会话后调用已授权的发现或唤醒接口。'])])])
 			]),E('div',{'class':'ed-guide-foot'},[ed.icon('shield'), '访问范围由 ACL 限定。外部账号不授予安装软件、控制服务或管理密钥的权限。'])]);
 		content.push(E('div',{'class':'ed-auth-layout'},[authCard,guide]));
 		var rows=ed.permissionNames.map(function(p){return E('tr',[
@@ -51,7 +51,7 @@ return baseclass.extend({
 			ed.cell(p.description),ed.cell([ed.badge(suspended?'账号已暂停':managed&&authorization.permissions&&authorization.permissions[p.id]?'已授权':'未授权',suspended?'warning':managed&&authorization.permissions&&authorization.permissions[p.id]?'success':'')]),
 			ed.cell([ed.button('查看',function(){ed.apiExample(p.id);},{kind:'text',icon:'code'})])
 		]);});
-		content.push(E('div',{'class':'ed-card'},[ed.section('对外发现接口','设备与 ADB 分别提供列表读取和主动发现。',ed.button('调用示例',function(){ed.apiExample();},{kind:'text',icon:'chevron'})),
+		content.push(E('div',{'class':'ed-card'},[ed.section('对外接口','设备与 ADB 提供发现接口，网络唤醒单独授权。',ed.button('调用示例',function(){ed.apiExample();},{kind:'text',icon:'chevron'})),
 			ed.table(['接口能力','功能说明','授权状态','示例'],rows,'ed-api-table')]));
 		content.push(E('div',{'class':'ed-under-note'},[ed.icon('info'),E('span',['账号使用随机密钥与密码哈希，RPCD 会话负责认证，HTTPS 负责传输加密。'])]));
 		return E('div',content);
@@ -66,7 +66,7 @@ return baseclass.extend({
 		});
 		var submitting=false;
 		ed.modal(create?'创建客户端授权':'编辑访问权限',[
-			E('p',['选择客户端可以使用的能力。读取列表不会主动扫描；需要主动更新的客户端，请勾选相应发现权限。']),
+			E('p',['选择客户端可以使用的能力。读取列表不会主动扫描；需要主动更新的客户端，请勾选相应发现权限。网络唤醒需单独勾选。']),
 			E('div',rows), E('p',{'class':'ed-description'},['“发起 ADB 发现”同时控制旧 EasyADB 固定扫描入口。保存后将清理专用账号的旧会话，客户端需要重新登录。'])
 		],[ed.button('取消',ed.hideModal),ed.button(create?'生成访问凭据':'保存权限',function(){
 			if(submitting)return;

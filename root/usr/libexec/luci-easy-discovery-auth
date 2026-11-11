@@ -1,7 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: Apache-2.0
-# Manage one dedicated RPCD identity. No username, password, path or role name
-# supplied by HTTP is accepted here; the only variable input is a 1..15 mask.
+# 管理固定的 RPCD 专用账号；外部仅可传入 1..31 的权限位掩码。
 set -e
 set -f
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
@@ -22,6 +21,7 @@ ROLE_DEVICE_LIST=easy-discovery-devices-list
 ROLE_DEVICE_SCAN=easy-discovery-devices-scan
 ROLE_ADB_LIST=easy-discovery-adb-list
 ROLE_ADB_SCAN=easy-discovery-adb-scan
+ROLE_WAKE=easy-discovery-wol-wake
 work=
 temporary_config=
 locked=0
@@ -83,8 +83,8 @@ case "$action" in
     create|permissions)
         [ "$#" -eq 1 ] || fail invalid_argument '授权操作需要一个权限位掩码'
         case "$1" in
-            1|2|3|4|5|6|7|8|9|10|11|12|13|14|15) requested_mask=$1 ;;
-            *) fail invalid_argument '权限位掩码必须为 1 到 15 的整数' ;;
+            1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29|30|31) requested_mask=$1 ;;
+            *) fail invalid_argument '权限位掩码必须为 1 到 31 的整数' ;;
         esac
         ;;
     status|rotate|revoke)
@@ -156,6 +156,7 @@ managed() {
             "$ROLE_DEVICE_SCAN") auth_mask=$((auth_mask | 2)) ;;
             "$ROLE_ADB_LIST") auth_mask=$((auth_mask | 4)) ;;
             "$ROLE_ADB_SCAN") auth_mask=$((auth_mask | 8)) ;;
+            "$ROLE_WAKE") auth_mask=$((auth_mask | 16)) ;;
             *) return 1 ;;
         esac
     done
@@ -193,6 +194,7 @@ state_json() {
     json_add_boolean deviceScan "$(( (auth_mask & 2) != 0 ))"
     json_add_boolean adbList "$(( (auth_mask & 4) != 0 ))"
     json_add_boolean adbScan "$(( (auth_mask & 8) != 0 ))"
+    json_add_boolean deviceWake "$(( (auth_mask & 16) != 0 ))"
     json_close_object
 }
 
@@ -272,6 +274,7 @@ emit_roles() {
         printf "add_list %s.%s.read='%s'\n" "$stage_package" "$SECTION" "$ROLE_ADB_SCAN"
         printf "add_list %s.%s.read='%s'\n" "$stage_package" "$SECTION" "$LEGACY_ROLE"
     fi
+    [ "$((mask & 16))" = 0 ] || printf "add_list %s.%s.read='%s'\n" "$stage_package" "$SECTION" "$ROLE_WAKE"
     return 0
 }
 

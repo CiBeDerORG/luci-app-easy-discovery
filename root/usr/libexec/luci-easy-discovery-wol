@@ -1,0 +1,23 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# 仅按明确请求发包；复用发现范围、授权屏障与互斥锁，不读取或更新发现快照。
+set -eu
+ED_KIND=wol
+. /usr/share/easy-discovery/discovery/common.sh
+ed_init
+[ "$#" -eq 0 ] || ed_error invalid_arguments '唤醒参数必须通过 JSON 请求传入'
+[ -x /usr/bin/etherwake ] || ed_error dependency_missing '请先在运行环境安装 Etherwake'
+ed_begin
+# 有界读取，拒绝过大的 RPC 请求；所有不可信参数由 ucode 严格验证。
+head -c 4097 > "$ED_WORK/request.json"
+[ "$(wc -c < "$ED_WORK/request.json")" -le 4096 ] || ed_error invalid_arguments '唤醒请求过大'
+ed_scope
+ucode "$ED_FORMAT" wake-plan "$ED_WORK" > "$ED_WORK/wake-plan" 2>/dev/null ||
+    ed_error invalid_arguments 'MAC 地址无效，或目标网络不在允许范围内、尚未启用'
+IFS=' ' read -r ED_IFACE ED_MAC < "$ED_WORK/wake-plan"
+case "$ED_IFACE" in ''|-*|*[!A-Za-z0-9_.:-]*) ed_error invalid_arguments '网络接口无效' ;; esac
+case "$ED_MAC" in ''|*[!0-9a-f:]*) ed_error invalid_arguments 'MAC 地址无效' ;; esac
+# 使用独立参数调用，广播仅发送到所选网络，成功不代表目标已经开机。
+timeout 5 /usr/bin/etherwake -b -i "$ED_IFACE" "$ED_MAC" > /dev/null 2>&1 ||
+    ed_error wake_failed '唤醒包发送失败，请检查 Etherwake 与网络接口状态'
+printf '%s\n' '{"status":"ok","message":"唤醒包已发送，设备是否启动请稍后确认"}'

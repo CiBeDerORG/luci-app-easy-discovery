@@ -49,6 +49,15 @@
         ],
         "/usr/libexec/luci-easy-discovery package plan remove arp": [
           "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package plan install etherwake": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package plan upgrade etherwake": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package plan remove etherwake": [
+          "exec"
         ]
       }
     },
@@ -62,6 +71,9 @@
         ],
         "easy-discovery.adb": [
           "scan"
+        ],
+        "easy-discovery.wol": [
+          "wake"
         ]
       },
       "file": {
@@ -139,6 +151,15 @@
         ],
         "/usr/libexec/luci-easy-discovery service dbus disable": [
           "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package apply install etherwake": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package apply upgrade etherwake": [
+          "exec"
+        ],
+        "/usr/libexec/luci-easy-discovery package apply remove etherwake": [
+          "exec"
         ]
       }
     }
@@ -194,6 +215,16 @@
       "ubus": {
         "easy-discovery.adb": [
           "scan"
+        ]
+      }
+    }
+  },
+  "easy-discovery-wol-wake": {
+    "description": "向允许的本地网络发送唤醒包",
+    "read": {
+      "ubus": {
+        "easy-discovery.wol": [
+          "wake"
         ]
       }
     }

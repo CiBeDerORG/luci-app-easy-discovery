@@ -6,7 +6,7 @@
 'require easy-discovery.environment as environment';
 'require easy-discovery.authorization as authorization';
 
-var componentNames = {avahi:'Avahi',dbus:'D-Bus',arp:'ARP 扫描增强'};
+var componentNames = {avahi:'Avahi',dbus:'D-Bus',arp:'ARP 扫描增强',etherwake:'Etherwake'};
 var operationNames = {start:'启动',stop:'停止',restart:'重启',enable:'开启自启',disable:'关闭自启',install:'安装',upgrade:'更新',remove:'卸载'};
 var pages = [
 	{id:'devices',label:'设备发现',icon:'network'},
@@ -38,7 +38,7 @@ return view.extend({
 			page:'devices',environmentTab:'packages',canWrite:typeof L.hasViewPermission==='function'&&L.hasViewPermission()===true,
 			snapshots:{devices:data[0].value,adb:data[1].value},environment:data[2].value,authorization:data[3].value,
 			errors:{devices:data[0].error,adb:data[1].error,environment:data[2].error,auth:data[3].error},
-			busy:{devices:false,adb:false,environment:false,auth:false},loading:{devices:false,adb:false},
+			busy:{devices:false,adb:false,environment:false,auth:false,wol:false},loading:{devices:false,adb:false},
 			deviceFilter:{query:'',network:'all',observation:'all',page:1},adbFilter:{query:'',protocol:'all',page:1},
 			packageJob:data[2].value&&data[2].value.job||null,packageWatching:false,packageWatchError:null
 		};
@@ -49,7 +49,7 @@ return view.extend({
 		var ctx={state:state,actions:{}};
 		function mounted(){return !disposed&&root.isConnected;}
 		function readOnly(){if(!state.canWrite){ed.notify('当前账号只有只读权限。',true);return true;}return false;}
-		function writeBusy(){return state.busy.devices||state.busy.adb||state.busy.environment||state.busy.auth||!!(state.packageJob&&state.packageJob.state==='running');}
+		function writeBusy(){return state.busy.wol||state.busy.devices||state.busy.adb||state.busy.environment||state.busy.auth||!!(state.packageJob&&state.packageJob.state==='running');}
 		function environmentComponents(){return state.environment&&Array.isArray(state.environment.components)?state.environment.components:[];}
 		function adbReady(){var components=environmentComponents();return ['avahi','dbus'].every(function(id){return components.some(function(c){return c.id===id&&c.installed==='installed'&&c.running;});});}
 		function setPage(page){state.page=page;draw();}
@@ -77,6 +77,17 @@ return view.extend({
 				if(applySnapshot(kind,result))ed.notify(result.status==='partial'?'发现已完成，部分来源不可用，请查看来源状态。':'发现已完成，共 '+result.devices.length+(kind==='adb'?' 个端点。':' 条设备记录。'),result.status==='partial');
 			},function(error){state.errors[kind]='本次发现失败：'+errorMessage(error)+'。上次结果仍保留。';})
 				.then(function(){state.busy[kind]=false;if(mounted())draw();});
+		}
+		function wake(device){
+			if(readOnly()||writeBusy())return Promise.resolve();
+			if(typeof device.mac!=='string'||!/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(device.mac)){
+				ed.notify('该记录缺少有效 MAC 地址，无法发送唤醒包。',true);return Promise.resolve();
+			}
+			state.busy.wol=true;draw();
+			return api.wake(device.mac,device.network).then(function(result){
+				ed.notify(result.message||'唤醒包已发送，设备是否启动请稍后确认');
+			},function(error){ed.notify(errorMessage(error),true);})
+				.then(function(){state.busy.wol=false;if(mounted())draw();});
 		}
 		function readEnvironment(preserveError){
 			return api.environment().then(function(result){state.environment=result;if(!preserveError)state.errors.environment=null;
@@ -176,7 +187,7 @@ return view.extend({
 				.then(function(){state.busy.auth=false;if(mounted())draw();});
 		}
 		ctx.actions={
-			page:setPage,adbReady:adbReady,detail:function(device){discovery.detail(device,ctx);},
+			page:setPage,adbReady:adbReady,wake:wake,writeBusy:writeBusy,detail:function(device){discovery.detail(device,ctx);},
 			services:function(){state.environmentTab='services';setPage('environment');},
 			environmentTab:function(tab){state.environmentTab=tab;draw();},refreshEnvironment:refreshEnvironment,
 			service:service,packageAction:packageAction,watchJob:watchJob,

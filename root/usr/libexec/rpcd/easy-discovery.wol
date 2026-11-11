@@ -1,0 +1,8 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# RPCD 校验独立唤醒权限，参数从标准输入交由后端验证。
+case "$#:$1:${2-}" in
+    1:list:) printf '%s\n' '{"wake":{"mac":"","network":""}}' ;;
+    2:call:wake) exec /usr/libexec/luci-easy-discovery-wol ;;
+    *) printf '%s\n' '{"status":"error","message":"不支持的接口方法"}'; exit 1 ;;
+esac

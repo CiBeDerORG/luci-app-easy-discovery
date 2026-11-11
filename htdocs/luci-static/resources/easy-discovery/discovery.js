@@ -119,7 +119,8 @@ return baseclass.extend({
 					ed.cell(device.mac, 'ed-mono ed-muted'), ed.cell(device.vendor || '未识别', device.vendor ? '' : 'ed-muted'),
 					ed.cell(device.model || '未识别', device.model ? '' : 'ed-muted'), ed.cell([statusBadge(device)]),
 					ed.cell(ed.date(device.last_seen), 'ed-time'),
-					ed.cell([ed.button('详情', function() { ctx.actions.detail(device); }, {kind: 'text', icon: 'chevron'})])
+					ed.cell([E('div', {'class':'ed-row-actions'}, [ed.button('唤醒', function() { return ctx.actions.wake(device); }, {kind:'text',icon:'power',disabled:!state.canWrite||ctx.actions.writeBusy()}),
+						ed.button('详情', function() { ctx.actions.detail(device); }, {kind: 'text', icon: 'chevron'})])])
 				]);
 			});
 			body.replaceChildren.apply(body, rows.length ? rows : [emptyRow(8, snapshot, all.length > 0, clear)]);

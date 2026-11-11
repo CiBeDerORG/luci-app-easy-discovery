@@ -37,7 +37,7 @@ for path in [ARGS.ucode, ARGS.runtime/'bin/uci', ARGS.runtime/'bin/jshn', ARGS.r
 ADMIN = 'a' * 32
 CLIENT = 'b' * 32
 OTHER = 'c' * 32
-PERMISSIONS = ('deviceList', 'deviceScan', 'adbList', 'adbScan')
+PERMISSIONS = ('deviceList', 'deviceScan', 'adbList', 'adbScan', 'deviceWake')
 
 MOCK = r'''#!/usr/bin/env python3
 import json, os, sys
@@ -47,6 +47,13 @@ s = json.loads(p.read_text())
 kind, args = sys.argv[1], sys.argv[2:]
 def save(): p.write_text(json.dumps(s))
 def fail(code=1): save(); raise SystemExit(code)
+if kind == 'etherwake':
+    s['commands'].append(['etherwake']+args)
+    fail(1 if s.get('wake_error') else 0)
+if kind == 'ubus':
+    if args != ['-t','1','call','network.interface','dump']: raise SystemExit(2)
+    print(json.dumps({'interface': s.get('interfaces', [{'interface':'lan','up':True,'l3_device':'br-lan'}])}))
+    raise SystemExit(0)
 if kind == 'pidof':
     target = {'avahi-daemon':'avahi','dbus-daemon':'dbus'}.get(args[0])
     if target in s['running']: print(12345); raise SystemExit(0)
@@ -107,12 +114,13 @@ class Backend(unittest.TestCase):
         self.save_packages()
         self.write(self.bin/'uci', '#!/bin/sh\nexec '+shlex.quote(str(ARGS.runtime/'bin/uci'))+' -c '+shlex.quote(str(self.config))+' -t '+shlex.quote(str(self.delta))+' "$@"\n', True)
         self.write(self.bin/'mock.py', MOCK, True)
-        for name in ('apk','pidof'):
+        for name in ('apk','pidof','etherwake','ubus'):
             self.write(self.bin/name, '#!/bin/sh\nexec '+shlex.quote(shutil.which('python3'))+' '+shlex.quote(str(self.bin/'mock.py'))+' '+name+' "$@"\n', True)
         for name in ('avahi-daemon','avahi-browse','dbus-daemon','arp-scan'):
             self.write(self.bin/name, '#!/bin/sh\nexit 0\n', True)
         for component,name in [('avahi','avahi-daemon'),('dbus','dbus')]:
             self.write(self.base/'etc/init.d'/name, '#!/bin/sh\nexec '+shlex.quote(shutil.which('python3'))+' '+shlex.quote(str(self.bin/'mock.py'))+' service '+component+' "$@"\n', True)
+        (self.bin/'ucode').symlink_to(ARGS.ucode)
         fake = ROOT/'tests/backend/fake-ubus.uc'
         helper = (ROOT/'root/usr/share/easy-discovery/auth/sessions.uc').read_text()
         self.write(self.base/'sessions.uc', helper.replace("from 'ubus'", 'from '+json.dumps(str(fake))))
@@ -121,6 +129,10 @@ class Backend(unittest.TestCase):
             '/usr/share/easy-discovery/auth/sessions.uc': str(self.base/'sessions.uc'),
             '/usr/share/easy-discovery/environment.sh': str(self.base/'environment.sh'),
             '/usr/libexec/luci-easy-discovery-job': str(self.base/'job'),
+            '/usr/share/easy-discovery/discovery/common.sh': str(self.base/'common.sh'),
+            '/usr/share/easy-discovery/discovery/format.uc': str(ROOT/'root/usr/share/easy-discovery/discovery/format.uc'),
+            '/usr/libexec/luci-easy-discovery-wol': str(self.base/'wol'),
+            '/usr/bin/etherwake': str(self.bin/'etherwake'),
             '/usr/bin/ucode': str(ARGS.ucode),
             '/sbin/uci': str(self.bin/'uci'),
             '/etc/config': str(self.config),
@@ -132,6 +144,9 @@ class Backend(unittest.TestCase):
         pattern = re.compile('|'.join(re.escape(k) for k in sorted(mappings,key=len,reverse=True)))
         for source,target in [
             ('root/usr/libexec/luci-easy-discovery-auth','auth'),
+            ('root/usr/libexec/luci-easy-discovery-wol','wol'),
+            ('root/usr/libexec/rpcd/easy-discovery.wol','rpc-wol'),
+            ('root/usr/share/easy-discovery/discovery/common.sh','common.sh'),
             ('root/usr/share/easy-discovery/environment.sh','environment.sh'),
             ('root/usr/libexec/luci-easy-discovery','environment'),
             ('root/usr/libexec/luci-easy-discovery-job','job')]:
@@ -157,8 +172,8 @@ class Backend(unittest.TestCase):
     def save_packages(self): self.write(self.base/'packages.json',json.dumps(self.packages))
     def read_sessions(self): return json.loads((self.base/'sessions.json').read_text())
     def read_packages(self): return json.loads((self.base/'packages.json').read_text())
-    def call(self,kind,*args,ok=True):
-        p=subprocess.run([str(ARGS.busybox),'ash',str(self.base/kind),*args],env=self.env,capture_output=True,text=True,timeout=12)
+    def call(self,kind,*args,ok=True,request=None):
+        p=subprocess.run([str(ARGS.busybox),'ash',str(self.base/kind),*args],env=self.env,input=request,capture_output=True,text=True,timeout=12)
         self.assertEqual(p.returncode,0 if ok else 1,(kind,args,p.stderr,p.stdout))
         try: return json.loads(p.stdout)
         except ValueError: self.fail(f'{kind} returned invalid JSON: {p.stdout!r}; stderr={p.stderr!r}')
@@ -183,7 +198,7 @@ class Backend(unittest.TestCase):
     def test_create_readonly_and_status_secret_absence(self):
         result=self.call('auth','create','5')
         self.assertRegex(result['password'],r'^[0-9a-f]{64}$')
-        self.assertEqual(result['permissions'],dict(zip(PERMISSIONS,[True,False,True,False])))
+        self.assertEqual(result['permissions'],dict(zip(PERMISSIONS,[True,False,True,False,False])))
         self.assertFalse(result['legacy_adb_scan'])
         status=self.call('auth','status')
         self.assertNotIn('password',status)
@@ -192,7 +207,7 @@ class Backend(unittest.TestCase):
 
     def test_all_permission_masks(self):
         self.call('auth','create','1')
-        for mask in range(1,16):
+        for mask in range(1,32):
             with self.subTest(mask=mask):
                 result=self.call('auth','permissions',str(mask))
                 self.assertEqual(result['permissions'],{p:bool(mask&(1<<i)) for i,p in enumerate(PERMISSIONS)})
@@ -200,7 +215,7 @@ class Backend(unittest.TestCase):
 
     def test_invalid_mask_and_conflict_preserve_configuration(self):
         before=(self.config/'rpcd').read_bytes()
-        for value in ('0','16','1;touch /tmp/unsafe','01'):
+        for value in ('0','32','1;touch /tmp/unsafe','01'):
             self.assertEqual(self.call('auth','create',value,ok=False)['error']['code'],'invalid_argument')
             self.assertEqual((self.config/'rpcd').read_bytes(),before)
         self.legacy(); self.uci('add_list','rpcd.easyadb.write=*'); self.uci('commit','rpcd')
@@ -217,7 +232,7 @@ class Backend(unittest.TestCase):
         self.assert_only_client_destroyed()
 
     def test_permission_reduction_revokes_existing_client(self):
-        self.call('auth','create','15');self.client_session()
+        self.call('auth','create','31');self.client_session()
         original=self.uci('get','rpcd.easyadb.password')
         result=self.call('auth','permissions','1')
         self.assertFalse(result['legacy_adb_scan'])
@@ -225,7 +240,7 @@ class Backend(unittest.TestCase):
         self.assert_only_client_destroyed()
 
     def test_cleanup_failure_stays_suspended_and_rotation_recovers(self):
-        self.call('auth','create','15');self.client_session()
+        self.call('auth','create','31');self.client_session()
         self.sessions=self.read_sessions();self.sessions['fail_destroy']=True;self.save_sessions()
         result=self.call('auth','permissions','1',ok=False)
         self.assertTrue(result['recovery_required'])
@@ -295,6 +310,56 @@ class Backend(unittest.TestCase):
                 deadline=time.monotonic()+2
                 while (self.base/'tmp/easy-discovery/environment/operation.lock').exists() and time.monotonic()<deadline:time.sleep(.02)
                 self.assertFalse((self.base/'tmp/easy-discovery/environment/operation.lock').exists())
+
+    def test_wake_package_and_service_boundary(self):
+        status=self.call('environment','status')
+        wol=next(c for c in status['components'] if c['id']=='etherwake')
+        self.assertEqual(wol['installed'],'missing')
+        self.assertFalse(wol['has_service'])
+        self.packages['installed'].append('etherwake');self.save_packages()
+        wol=next(c for c in self.call('environment','status')['components'] if c['id']=='etherwake')
+        self.assertEqual(wol['installed'],'installed')
+        for action in ('install','upgrade','remove'):
+            self.call('environment','package','plan',action,'etherwake')
+        self.assertEqual(self.call('environment','service','etherwake','start',ok=False)['error']['code'],'invalid_argument')
+
+    def test_wake_rpc_sends_once_without_discovery(self):
+        self.assertEqual(self.call('rpc-wol','list'),{'wake':{'mac':'','network':''}})
+        state=self.base/'tmp/easy-discovery/discovery';state.mkdir(parents=True)
+        snapshot=state/'devices.json';snapshot.write_text('保留原快照')
+        result=self.call('rpc-wol','call','wake',request=json.dumps({'mac':'02:AA:BB:CC:DD:EE','network':'lan'}))
+        self.assertEqual(result['status'],'ok')
+        self.assertIn('唤醒包已发送',result['message'])
+        self.assertEqual(self.read_packages()['commands'],[['etherwake','-b','-i','br-lan','02:aa:bb:cc:dd:ee']])
+        self.assertEqual(snapshot.read_text(),'保留原快照')
+        self.assertFalse((state/'wol.lock').exists())
+
+    def test_wake_rejects_invalid_requests_and_networks(self):
+        for request in ('not json','[]','x'*4097,json.dumps({'mac':'02:11:22:33:44:55','network':'lan;reboot'})):
+            self.call('wol',ok=False,request=request)
+        for mac in ('00:00:00:00:00:00','ff:ff:ff:ff:ff:ff','01:11:22:33:44:55','02:11:22:33:44:55;reboot','02:11:22:33:44:55\x00'):
+            self.call('wol',ok=False,request=json.dumps({'mac':mac,'network':'lan'}))
+        for network in ('wan','guest','br-lan',''):
+            self.call('wol',ok=False,request=json.dumps({'mac':'02:11:22:33:44:55','network':network}))
+        self.packages['interfaces']=[{'interface':'lan','up':False,'l3_device':'br-lan'}];self.save_packages()
+        self.call('wol',ok=False,request=json.dumps({'mac':'02:11:22:33:44:55','network':'lan'}))
+        self.assertEqual(self.read_packages()['commands'],[])
+
+    def test_wake_failure_missing_dependency_and_auth_barrier(self):
+        request=json.dumps({'mac':'02:11:22:33:44:55','network':'lan'})
+        self.packages['wake_error']=True;self.save_packages()
+        self.assertEqual(self.call('wol',ok=False,request=request)['errors'][0]['code'],'wake_failed')
+        (self.bin/'etherwake').unlink()
+        self.assertEqual(self.call('wol',ok=False,request=request)['errors'][0]['code'],'dependency_missing')
+        self.call('auth','create','16')
+        self.assertEqual(self.uci('get','rpcd.easyadb.read'),'easy-discovery-wol-wake')
+        self.uci('set','rpcd.easyadb.easy_discovery_suspended=1');self.uci('commit','rpcd')
+        self.assertEqual(self.call('wol',ok=False,request=request)['errors'][0]['code'],'auth_suspended')
+
+    def test_legacy_permissions_do_not_gain_wake_on_upgrade_or_rotation(self):
+        self.call('auth','create','15')
+        self.assertFalse(self.call('auth','status')['permissions']['deviceWake'])
+        self.assertFalse(self.call('auth','rotate')['permissions']['deviceWake'])
 
     def test_interrupted_job_is_reported_failed(self):
         state=self.base/'tmp/easy-discovery/environment';state.mkdir(parents=True)

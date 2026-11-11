@@ -5,13 +5,14 @@
 var components = {
 	avahi: { name: 'Avahi', purpose: '发现局域网 mDNS 与无线 ADB 端点', icon: 'discover' },
 	dbus: { name: 'D-Bus', purpose: '为 Avahi 提供进程间通信支持', icon: 'link' },
-	arp: { name: 'ARP 扫描增强', purpose: '按需补充同一二层网络内的 IPv4 设备', icon: 'network' }
+	arp: { name: 'ARP 扫描增强', purpose: '按需补充同一二层网络内的 IPv4 设备', icon: 'network' },
+	etherwake: { name: 'Etherwake', purpose: '按需向局域网设备发送网络唤醒包，无需启动服务', icon: 'power' }
 };
 function installedLabel(component) { return component.installed === 'installed' ? '已安装' : component.installed === 'partial' ? '安装不完整' : '未安装'; }
 function title(component) {
 	var meta = components[component.id] || {name:component.name || component.id, icon:'box'};
 	return E('div', {'class':'ed-device'}, [E('span', {'class':'ed-device-icon'}, [ed.icon(meta.icon)]),
-		E('div', [E('strong', [meta.name, component.id === 'arp' ? E('span', {'class':'ed-mini-tag'}, ['可选']) : '']),
+		E('div', [E('strong', [meta.name, (component.id === 'arp' || component.id === 'etherwake') ? E('span', {'class':'ed-mini-tag'}, ['可选']) : '']),
 			E('div', {'class':'ed-package-names'}, (component.packages || []).map(function(pkg) {
 				return E('span', {'class':'ed-code-tag',title:pkg.version ? pkg.name + ' · ' + pkg.version : pkg.name}, [pkg.name + (pkg.version ? ' · ' + pkg.version : '')]);
 			}))])]);
@@ -39,7 +40,7 @@ return baseclass.extend({
 	render: function(ctx) {
 		var state = ctx.state, environment = state.environment, inventory = environment && Array.isArray(environment.components) ? environment.components : [];
 		var packages = state.environmentTab === 'packages';
-		var locked = !state.canWrite || state.busy.environment || state.busy.auth || state.busy.devices || state.busy.adb || !!(state.packageJob && state.packageJob.state === 'running');
+		var locked = !state.canWrite || state.busy.environment || state.busy.auth || state.busy.devices || state.busy.adb || state.busy.wol || !!(state.packageJob && state.packageJob.state === 'running');
 		var ready = ctx.actions.adbReady(), content = [];
 		if (state.errors.environment) content.push(ed.note(state.errors.environment,'error'));
 		content.push(E('div',{'class':'ed-section-top'},[E('div',[E('h2',['运行环境']),E('p',['先准备发现组件，再按需开启相关服务。'])]),
@@ -100,7 +101,7 @@ return baseclass.extend({
 				ed.table(['服务','运行状态','开机自启','服务控制'],serviceRows,'ed-environment-table'),
 				E('div',{'class':'ed-card-foot'},[ed.icon('info'),E('span',['停止或重启 D-Bus 会先停止 Avahi；重启 D-Bus 后需手动启动 Avahi。'])])]));
 		}
-		content.push(E('div',{'class':'ed-under-note'},[ed.icon('info'),E('span',['设备基础发现按需读取 DHCP 与邻居信息，无需常驻扫描进程。Avahi 用于 mDNS / ADB 发现，ARP 为可选增强。'])]));
+		content.push(E('div',{'class':'ed-under-note'},[ed.icon('info'),E('span',['设备基础发现按需读取 DHCP 与邻居信息，无需常驻扫描进程。Avahi 用于 mDNS / ADB 发现，ARP 为可选增强，Etherwake 用于按需网络唤醒。'])]));
 		return E('div',content);
 	}
 });

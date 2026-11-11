@@ -107,10 +107,11 @@ ed_package_names() {
         avahi) printf '%s\n' avahi-dbus-daemon avahi-utils ;;
         dbus) printf '%s\n' dbus ;;
         arp) printf '%s\n' arp-scan ;;
+        etherwake) printf '%s\n' etherwake ;;
         *) return 1 ;;
     esac
 }
-ed_component_name() { case "$1" in avahi) printf Avahi ;; dbus) printf D-Bus ;; arp) printf 'ARP 扫描增强' ;; *) return 1 ;; esac; }
+ed_component_name() { case "$1" in avahi) printf Avahi ;; dbus) printf D-Bus ;; arp) printf 'ARP 扫描增强' ;; etherwake) printf Etherwake ;; *) return 1 ;; esac; }
 ed_service_init() { case "$1" in avahi) printf /etc/init.d/avahi-daemon ;; dbus) printf /etc/init.d/dbus ;; *) return 1 ;; esac; }
 ed_running() { case "$1" in avahi) pidof avahi-daemon >/dev/null 2>&1 ;; dbus) pidof dbus-daemon >/dev/null 2>&1 ;; *) return 1 ;; esac; }
 ed_enabled() { _ed_init=$(ed_service_init "$1") || return 1; [ -x "$_ed_init" ] && "$_ed_init" enabled >/dev/null 2>&1; }
@@ -132,6 +133,7 @@ ed_component_ready() {
         avahi) command -v avahi-daemon >/dev/null 2>&1 && command -v avahi-browse >/dev/null 2>&1 && [ -x /etc/init.d/avahi-daemon ] ;;
         dbus) command -v dbus-daemon >/dev/null 2>&1 && [ -x /etc/init.d/dbus ] ;;
         arp) command -v arp-scan >/dev/null 2>&1 ;;
+        etherwake) [ -x /usr/bin/etherwake ] ;;
         *) return 1 ;;
     esac
 }
@@ -158,7 +160,7 @@ ed_component_json() {
     else _ed_install_state=missing; fi
     json_add_string installed "$_ed_install_state"
     _ed_flag=0
-    if [ "$_ed_component" != arp ]; then
+    if [ "$_ed_component" = avahi ] || [ "$_ed_component" = dbus ]; then
         _ed_component_init=$(ed_service_init "$_ed_component")
         [ -x "$_ed_component_init" ] && _ed_flag=1
     fi
@@ -207,7 +209,7 @@ ed_status() {
     json_add_string status ok
     json_add_string package_manager "$ED_MANAGER"
     json_add_array components
-    for _ed_c in avahi dbus arp; do ed_component_json "$_ed_c"; done
+    for _ed_c in avahi dbus arp etherwake; do ed_component_json "$_ed_c"; done
     json_close_array
     json_add_object settings
     _ed_arp=0; [ "$("$ED_UCI" -q get easy-discovery.settings.arp_scan 2>/dev/null)" = 1 ] && _ed_arp=1

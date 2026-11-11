@@ -9,6 +9,7 @@ var AUTH = '/usr/libexec/luci-easy-discovery-auth';
 function discoveryCall(object, method) {
 	return rpc.declare({ object: object, method: method, params: [], reject: true, nobatch: true });
 }
+var wakeCall = rpc.declare({object:'easy-discovery.wol',method:'wake',params:['mac','network'],reject:true,nobatch:true});
 var calls = {
 	devices: { list: discoveryCall('easy-discovery.devices', 'list'), scan: discoveryCall('easy-discovery.devices', 'scan') },
 	adb: { list: discoveryCall('easy-discovery.adb', 'list'), scan: discoveryCall('easy-discovery.adb', 'scan') }
@@ -36,6 +37,12 @@ return baseclass.extend({
 		return calls[kind][method]().then(function(data) {
 			if (!data || ['ok', 'partial', 'error'].indexOf(data.status) < 0 || !Array.isArray(data.devices))
 				throw new Error('发现接口返回格式无效，请确认插件安装完整');
+			return data;
+		});
+	},
+	wake: function(mac, network) {
+		return wakeCall(mac, network).then(function(data) {
+			if (!data || data.status !== 'ok') throw new Error(data && data.message || '网络唤醒失败');
 			return data;
 		});
 	},

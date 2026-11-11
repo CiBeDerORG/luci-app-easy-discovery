@@ -25,7 +25,7 @@ define Package/luci-app-easy-discovery/description
  On-demand local network device and wireless ADB discovery for LuCI.
  Includes independent dependency/service management, capability-scoped RPCD
  authorization, volatile snapshots and compatibility with EasyADB clients.
- Avahi, D-Bus and arp-scan are optional and installed explicitly in the UI.
+ Avahi, D-Bus, arp-scan 和 etherwake 均为可选组件，由管理员在页面中显式安装。
 endef
 
 define Package/luci-app-easy-discovery/conffiles

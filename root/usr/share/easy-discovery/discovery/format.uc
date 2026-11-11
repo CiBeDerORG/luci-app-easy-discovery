@@ -469,6 +469,17 @@ switch (action) {
 		emit(scope);
 		break;
 	}
+	case 'wake-plan': {
+		// MAC 与逻辑网络来自请求，实际接口只能从当前允许的网络范围取得。
+		let request = readjson(location + '/request.json');
+		if (type(request) != 'object') exit(1);
+		let address = mac(request?.mac), name = request?.network;
+		if (!address || !validName(name) || length(request.mac) != 17 || length(name) > 32) exit(1);
+		let targets = filter(array(readjson(location + '/scope.json')?.networks), n => n.name == name && validName(n.iface));
+		if (length(targets) != 1) exit(1);
+		printf('%s %s\n', targets[0].iface, address);
+		break;
+	}
 	case 'arp-plan':
 		for (let target in arpPlan(object(readjson(location + '/scope.json')))) printf('%s %s\n', target.iface, target.cidr);
 		break;

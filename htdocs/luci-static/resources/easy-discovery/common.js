@@ -141,7 +141,8 @@ return baseclass.extend({
 		{id: 'deviceList', value: 1, name: '读取设备列表', object: 'easy-discovery.devices', method: 'list', description: '读取最近一次设备发现快照'},
 		{id: 'deviceScan', value: 2, name: '发起设备发现', object: 'easy-discovery.devices', method: 'scan', description: '主动采集设备信息'},
 		{id: 'adbList', value: 4, name: '读取 ADB 列表', object: 'easy-discovery.adb', method: 'list', description: '读取最近一次 ADB 端点快照'},
-		{id: 'adbScan', value: 8, name: '发起 ADB 发现', object: 'easy-discovery.adb', method: 'scan', description: '执行一次有时间边界的 ADB 发现'}
+		{id: 'adbScan', value: 8, name: '发起 ADB 发现', object: 'easy-discovery.adb', method: 'scan', description: '执行一次有时间边界的 ADB 发现'},
+		{id: 'deviceWake', value: 16, name: '网络唤醒', object: 'easy-discovery.wol', method: 'wake', description: '向允许的本地网络内指定 MAC 地址发送唤醒包'}
 	],
 	apiEndpoint: function() {
 		var path = L.env && typeof L.env.ubuspath === 'string' ? L.env.ubuspath : '/ubus';
@@ -150,12 +151,12 @@ return baseclass.extend({
 	},
 	apiExample: function(id) {
 		var p = this.permissionNames.filter(function(item) { return item.id === id; })[0] || this.permissionNames[0];
-		var code = JSON.stringify({jsonrpc: '2.0', id: 1, method: 'call', params: ['<RPCD_SESSION>', p.object, p.method, {}]}, null, 2);
+		var code = JSON.stringify({jsonrpc: '2.0', id: 1, method: 'call', params: ['<RPCD_SESSION>', p.object, p.method, p.method === 'wake' ? {mac:'02:11:22:33:44:55',network:'lan'} : {}]}, null, 2);
 		modal(p.name + ' · 调用示例', [
 			E('p', ['接口地址：', E('code', [this.apiEndpoint()])]),
 			E('p', ['先使用专用账号调用 session.login 获取 ubus_rpc_session，再调用已获授权的方法。']),
 			E('pre', {'class': 'ed-code'}, [code]),
-			E('p', {'class': 'ed-description'}, [p.method === 'list' ? 'list 仅读取快照，不会触发扫描。' : 'scan 显式发起一次发现，服务端限制执行时间与返回数量。'])
+			E('p', {'class': 'ed-description'}, [p.method === 'list' ? 'list 仅读取快照，不会触发扫描。' : p.method === 'wake' ? 'wake 按 MAC 与逻辑网络发送唤醒包，不扫描、不更新在线状态；network 需在管理员配置的网络范围内。' : 'scan 显式发起一次发现，服务端限制执行时间与返回数量。'])
 		], [button('复制示例', function() { return copy(code); }, {icon: 'copy'}), button('关闭', ui.hideModal, {kind: 'primary'})]);
 	}
 });

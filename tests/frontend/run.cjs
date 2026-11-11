@@ -28,7 +28,7 @@ function component(id, installed = 'installed', running = false) {
     has_service: id !== 'arp' && installed === 'installed', running, enabled: false };
 }
 function environment(extras = {}) {
-  return { status: 'ok', package_manager: 'apk', components: [component('avahi', 'installed', true), component('dbus', 'installed', true), component('arp', 'missing')],
+  return { status: 'ok', package_manager: 'apk', components: [component('avahi', 'installed', true), component('dbus', 'installed', true), component('arp', 'missing'), component('etherwake', 'missing')],
     settings: { networks: ['lan'], arp_scan: false }, job: null, ...extras };
 }
 function auth(extras = {}) {
@@ -88,7 +88,8 @@ async function harness(options = {}) {
     if (result instanceof Error) throw result;
     return clone(result);
   }
-  const rpc = { declare(spec) { return () => {
+  const rpc = { declare(spec) { return (...args) => {
+    if (spec.object === 'easy-discovery.wol') return reply('wol.wake ' + args.join(' '), () => ({status:'ok',message:'唤醒包已发送，设备是否启动请稍后确认'}));
     const kind = spec.object === 'easy-discovery.devices' ? 'devices' : 'adb';
     return reply(kind + '.' + spec.method, () => state[kind]);
   }; } };
@@ -244,7 +245,7 @@ for (const permission of [false, null]) {
 }
 
 test('包安装立即返回成功时回读组件，不启动进度轮询', async t => {
-  const h = await harness({ environment: environment({ components: [component('avahi', 'missing'), component('dbus'), component('arp', 'missing')] }) }); t.after(h.close);
+  const h = await harness({ environment: environment({ components: [component('avahi', 'missing'), component('dbus'), component('arp', 'missing'), component('etherwake', 'missing')] }) }); t.after(h.close);
   h.queue('environment package apply install avahi', state => {
     state.environment.components[0] = component('avahi'); state.environment.job = task('succeeded');
     return { status: 'ok', job: state.environment.job };
@@ -261,7 +262,7 @@ test('包安装立即返回成功时回读组件，不启动进度轮询', async
 });
 
 test('包安装立即失败时展示失败与实际组件状态', async t => {
-  const h = await harness({ environment: environment({ components: [component('avahi', 'missing'), component('dbus'), component('arp', 'missing')] }) }); t.after(h.close);
+  const h = await harness({ environment: environment({ components: [component('avahi', 'missing'), component('dbus'), component('arp', 'missing'), component('etherwake', 'missing')] }) }); t.after(h.close);
   h.queue('environment package apply install avahi', state => {
     state.environment.job = task('failed'); return { status: 'ok', job: state.environment.job };
   });
@@ -378,4 +379,63 @@ test('toast 支持去重、限量、手动关闭、纯文本及离页清理', as
   h.window.dispatchEvent(new h.window.Event('pagehide'));
   assert.equal(h.window.document.querySelector('.ed-toast-layer'), null);
   assert.equal(h.pendingTimers.size, 0);
+});
+
+// 唤醒不以在线状态或设备类型筛选，也不隐式扫描和改写快照。
+test('所有设备行均可显式唤醒，成功后保留快照', async t => {
+  const devices = ['recent','lease','cached'].map((state,i) => device('设备'+i,'192.168.1.'+(20+i),'02:11:22:33:44:5'+i,'lan',state));
+  const h = await harness({devices:snapshot(devices)}); t.after(h.close);
+  const before = JSON.stringify(h.state.devices);
+  for (let i=0;i<3;i++) await h.click('唤醒',h.rows()[i]);
+  assert.deepEqual(h.calls.slice(4),devices.map(d=>'wol.wake '+d.mac+' lan'));
+  assert.equal(JSON.stringify(h.state.devices),before);
+  assert.ok(h.window.document.body.textContent.includes('唤醒包已发送'));
+});
+
+test('唤醒失败提示安装依赖，连续点击与只读账号不重复发包', async t => {
+  const h = await harness(); t.after(h.close);
+  let finish;
+  h.queue('wol.wake 02:11:22:33:44:55 lan', () => new Promise(resolve=>{finish=resolve;}));
+  await h.click('唤醒');
+  assert.equal(h.button('唤醒').disabled,true);
+  await h.click('唤醒');
+  finish({status:'error',message:'请先在运行环境安装 Etherwake'}); await h.flush();
+  assert.equal(h.calls.filter(c=>c.startsWith('wol.wake')).length,1);
+  assert.equal(h.button('唤醒').disabled,false);
+  assert.ok(h.window.document.body.textContent.includes('请先在运行环境安装 Etherwake'));
+  const ro = await harness({permission:false}); t.after(ro.close);
+  assert.equal(ro.button('唤醒').disabled,true);
+  await ro.click('唤醒');assert.equal(ro.calls.length,4);
+});
+
+test('Etherwake 作为可选包安装，不进入服务管理', async t => {
+  const h=await harness(); t.after(h.close);
+  await h.click('运行环境');
+  const row=h.rows().find(r=>r.textContent.includes('Etherwake'));assert.ok(row);
+  await h.click('安装',row);
+  assert.ok(h.calls.includes('environment package plan install etherwake'));
+  assert.ok(h.window.document.body.textContent.includes('确认安装 Etherwake'));
+  await h.click('取消'); h.root.querySelectorAll('.ed-env-step')[1].click(); await h.flush();
+  assert.equal(h.rows().some(r=>r.textContent.includes('Etherwake')),false);
+});
+
+test('网络唤醒独立授权，默认不选中并提供实际请求示例', async t => {
+  const h=await harness();t.after(h.close);
+  await h.click('接口授权'); await h.click('编辑权限');
+  const fields=h.window.document.querySelectorAll('.ed-check-row input');
+  assert.equal(fields.length,5); assert.equal(fields[4].value,'16'); assert.equal(fields[4].checked,false);
+  fields.forEach(f=>{f.checked=false;});fields[4].checked=true;
+  await h.click('保存权限');assert.ok(h.calls.includes('auth permissions 16'));
+  const row=h.rows().find(r=>r.textContent.includes('easy-discovery.wol'));
+  await h.click('查看',row);
+  const example=JSON.parse(h.window.document.querySelector('.ed-code').textContent);
+  assert.deepEqual(example.params.slice(1),['easy-discovery.wol','wake',{mac:'02:11:22:33:44:55',network:'lan'}]);
+});
+
+
+test('缺少 MAC 的设备仍显示唤醒入口并解释不可发包原因', async t => {
+  const h=await harness({devices:snapshot([device('仅有 IP','192.168.1.20',null)])});t.after(h.close);
+  await h.click('唤醒');
+  assert.equal(h.calls.length,4);
+  assert.ok(h.window.document.body.textContent.includes('缺少有效 MAC 地址'));
 });

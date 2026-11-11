@@ -32,6 +32,10 @@ for kind in ("devices", "adb"):
         role = acl[f"easy-discovery-{kind}-{method}"]
         assert role["read"] == {"ubus": {f"easy-discovery.{kind}": [method]}}
         assert not role.get("write"), "外部发现角色不得获得管理员写权限"
+assert acl['easy-discovery-wol-wake']['read'] == {'ubus': {'easy-discovery.wol': ['wake']}}
+assert not acl['easy-discovery-wol-wake'].get('write')
+assert 'easy-discovery.wol' not in acl['luci-app-easy-discovery']['read']['ubus']
+assert acl['luci-app-easy-discovery']['write']['ubus']['easy-discovery.wol'] == ['wake']
 legacy = acl["luci-avahi-easyadb"]
 assert legacy["read"] == {
     "ubus": {"file": ["exec"]},
@@ -52,4 +56,4 @@ for path in (ROOT / "htdocs").rglob("*.js"):
     for module in re.findall(r"'require (easy-discovery\.[a-z]+)(?: as [a-z]+)?';", path.read_text()):
         assert (ROOT / "htdocs/luci-static/resources" / (module.replace(".", "/") + ".js")).is_file()
 print("通过：源码语法 " + json.dumps(checks, ensure_ascii=False))
-print("通过：四项外部能力、旧兼容入口、管理员执行入口与 LuCI 资源契约")
+print("通过：五项外部能力、旧兼容入口、管理员执行入口与 LuCI 资源契约")
