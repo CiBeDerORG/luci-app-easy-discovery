@@ -39,8 +39,17 @@ jobs:
           persist-credentials: false
       - name: 准备 SDK 运行工具
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential gawk gettext git libncurses-dev libssl-dev python3 rsync unzip zstd file wget curl
+          # 仅为本步骤使用官方源，避免 runner 的 Azure 镜像 DNS 故障及无关第三方源。
+          apt_sources="$RUNNER_TEMP/easy-discovery-ubuntu.list"
+          cat > "$apt_sources" <<'EOF'
+          deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu noble main universe
+          deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu noble-updates main universe
+          deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://security.ubuntu.com/ubuntu noble-security main universe
+          EOF
+          apt_options=(-o "Dir::Etc::sourcelist=$apt_sources" -o "Dir::Etc::sourceparts=-"
+            -o "Acquire::Retries=3" -o "Acquire::https::Timeout=30" -o "APT::Update::Error-Mode=any")
+          sudo apt-get "${apt_options[@]}" update
+          sudo apt-get "${apt_options[@]}" install -y --no-install-recommends build-essential gawk gettext git libncurses-dev libssl-dev python3 rsync unzip zstd file wget curl
       - name: 缓存已校验的 SDK 下载
         id: sdk-cache
         uses: actions/cache@v4
